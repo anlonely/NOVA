@@ -36,6 +36,9 @@ enum Command {
     ListDevices,
     StartCapture(CaptureConfig),
     StopCapture,
+    StartPlayback(PlaybackConfig),
+    PlaybackChunk(PlaybackChunkCommand),
+    StopPlayback,
     Shutdown,
 }
 
@@ -52,6 +55,25 @@ struct CaptureConfig {
     enable_agc: Option<bool>,
     agc_target_dbfs: Option<f32>,
     max_agc_gain: Option<f32>,
+    resampler_quality: Option<String>,
+    vad_mode: Option<String>,
+    enable_noise_floor: Option<bool>,
+    adaptive_chunking: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct PlaybackConfig {
+    channel: String,
+    device_id: String,
+    sample_rate: Option<u32>,
+    chunk_ms: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct PlaybackChunkCommand {
+    channel: String,
+    sample_rate: Option<u32>,
+    data: String,
 }
 
 #[derive(Debug)]
@@ -71,6 +93,11 @@ struct AudioChunkEvent {
     level_db: f32,
     queue_depth: usize,
     dropped_silent_chunks: u64,
+    vad_score: f32,
+    noise_floor_db: f32,
+    agc_gain: f32,
+    resampler: String,
+    emitted_at_ms: u128,
     pcm16: Vec<i16>,
 }
 
@@ -82,11 +109,21 @@ struct MetricsEvent {
     speech: bool,
     queue_depth: usize,
     dropped_silent_chunks: u64,
+    vad_score: f32,
+    noise_floor_db: f32,
+    agc_gain: f32,
+    resampler: String,
 }
 
 struct CaptureRuntime {
     stop: Arc<AtomicBool>,
     stream: Stream,
+}
+
+struct PlaybackRuntime {
+    stop: Arc<AtomicBool>,
+    sender: Sender<Vec<i16>>,
+    worker: thread::JoinHandle<()>,
 }
 
 fn native_host_id() -> HostId {
@@ -258,7 +295,8 @@ fn start_capture(config: CaptureConfig, event_tx: Sender<CoreEvent>) -> Result<C
         "device_name": device_name,
         "input_sample_rate": input_rate,
         "target_sample_rate": target_rate,
-        "sample_format": format!("{sample_format:?}")
+        "sample_format": format!("{sample_format:?}"),
+        "platform_strategy": platform_strategy(),
     }))?;
     Ok(CaptureRuntime { stop, stream })
 }
@@ -333,12 +371,22 @@ struct CaptureProcessor {
     dropped_silent_chunks: u64,
     last_metrics_at: Instant,
     resample_cursor: f64,
+    resample_tail: Vec<f32>,
+    resampler_quality: String,
+    vad_mode: String,
+    enable_noise_floor: bool,
+    adaptive_chunking: bool,
+    noise_floor_db: f32,
+    current_agc_gain: f32,
+    started_at: Instant,
 }
 
 impl CaptureProcessor {
     fn new(config: CaptureConfig, input_rate: u32, input_channels: usize, output_rate: u32) -> Self {
         let chunk_ms = config.chunk_ms.unwrap_or(20).clamp(10, 120);
-        let chunk_samples = ((output_rate as u64 * chunk_ms as u64) / 1000).max(1) as usize;
+        let adaptive_chunking = config.adaptive_chunking.unwrap_or(false);
+        let effective_chunk_ms = if adaptive_chunking { chunk_ms.clamp(10, 40) } else { chunk_ms };
+        let chunk_samples = ((output_rate as u64 * effective_chunk_ms as u64) / 1000).max(1) as usize;
         let silence_hold_ms = config.silence_hold_ms.unwrap_or(220);
         let silence_hold_chunks = ((silence_hold_ms + chunk_ms - 1) / chunk_ms).max(1);
         let pre_roll_ms = config.pre_roll_ms.unwrap_or(160);
@@ -364,12 +412,20 @@ impl CaptureProcessor {
             dropped_silent_chunks: 0,
             last_metrics_at: Instant::now(),
             resample_cursor: 0.0,
+            resample_tail: Vec::new(),
+            resampler_quality: normalize_resampler_quality(config.resampler_quality.as_deref()),
+            vad_mode: normalize_vad_mode(config.vad_mode.as_deref()),
+            enable_noise_floor: config.enable_noise_floor.unwrap_or(true),
+            adaptive_chunking,
+            noise_floor_db: -72.0,
+            current_agc_gain: 1.0,
+            started_at: Instant::now(),
         }
     }
 
     fn push_interleaved<T: InputSample + Copy>(&mut self, data: &[T]) -> Vec<CoreEvent> {
         let mono = self.to_mono(data);
-        let resampled = self.resample_linear(&mono);
+        let resampled = self.resample(&mono);
         self.output_buffer.extend(resampled);
         let mut events = Vec::new();
         while self.output_buffer.len() >= self.chunk_samples {
@@ -388,13 +444,21 @@ impl CaptureProcessor {
         mono
     }
 
-    fn resample_linear(&mut self, input: &[f32]) -> Vec<f32> {
+    fn resample(&mut self, input: &[f32]) -> Vec<f32> {
         if input.is_empty() {
             return Vec::new();
         }
         if self.input_rate == self.output_rate {
             return input.to_vec();
         }
+        if self.resampler_quality == "sinc-lite" {
+            self.resample_sinc_lite(input)
+        } else {
+            self.resample_linear(input)
+        }
+    }
+
+    fn resample_linear(&mut self, input: &[f32]) -> Vec<f32> {
         let ratio = self.input_rate as f64 / self.output_rate as f64;
         let mut output = Vec::new();
         while self.resample_cursor < input.len().saturating_sub(1) as f64 {
@@ -412,9 +476,31 @@ impl CaptureProcessor {
         output
     }
 
+    fn resample_sinc_lite(&mut self, input: &[f32]) -> Vec<f32> {
+        let mut extended = Vec::with_capacity(self.resample_tail.len() + input.len());
+        extended.extend_from_slice(&self.resample_tail);
+        extended.extend_from_slice(input);
+        let tail_offset = self.resample_tail.len() as f64;
+        let ratio = self.input_rate as f64 / self.output_rate as f64;
+        let mut cursor = self.resample_cursor + tail_offset;
+        let mut output = Vec::new();
+        while cursor < extended.len().saturating_sub(3) as f64 {
+            let idx = cursor.floor() as isize;
+            let frac = (cursor - idx as f64) as f32;
+            output.push(cubic_sample(&extended, idx, frac));
+            cursor += ratio;
+        }
+        let keep = extended.len().min(8);
+        self.resample_tail = extended[extended.len().saturating_sub(keep)..].to_vec();
+        self.resample_cursor = (cursor - (extended.len().saturating_sub(keep)) as f64).max(0.0);
+        output
+    }
+
     fn process_chunk(&mut self, samples: &[f32]) -> Vec<CoreEvent> {
         let level_db = dbfs(samples);
-        let speech_now = level_db >= self.noise_gate_db;
+        let vad_score = self.vad_score(samples, level_db);
+        self.update_noise_floor(level_db, vad_score);
+        let speech_now = vad_score >= 0.58;
         if speech_now {
             self.speech_hold_remaining = self.silence_hold_chunks;
             self.speech_active = true;
@@ -426,6 +512,7 @@ impl CaptureProcessor {
         }
 
         let gain = self.compute_gain(level_db);
+        self.current_agc_gain = gain;
         let pcm16 = float_to_pcm16(samples, self.input_gain * gain);
         let mut events = Vec::new();
 
@@ -441,6 +528,11 @@ impl CaptureProcessor {
                     level_db,
                     queue_depth: 0,
                     dropped_silent_chunks: self.dropped_silent_chunks,
+                    vad_score,
+                    noise_floor_db: self.noise_floor_db,
+                    agc_gain: self.current_agc_gain,
+                    resampler: self.resampler_quality.clone(),
+                    emitted_at_ms: self.started_at.elapsed().as_millis(),
                     pcm16: pre,
                 }));
             }
@@ -454,6 +546,11 @@ impl CaptureProcessor {
                 level_db,
                 queue_depth: 0,
                 dropped_silent_chunks: self.dropped_silent_chunks,
+                vad_score,
+                noise_floor_db: self.noise_floor_db,
+                agc_gain: self.current_agc_gain,
+                resampler: self.resampler_quality.clone(),
+                emitted_at_ms: self.started_at.elapsed().as_millis(),
                 pcm16,
             }));
         } else {
@@ -473,9 +570,38 @@ impl CaptureProcessor {
                 speech: self.speech_active,
                 queue_depth: 0,
                 dropped_silent_chunks: self.dropped_silent_chunks,
+                vad_score,
+                noise_floor_db: self.noise_floor_db,
+                agc_gain: self.current_agc_gain,
+                resampler: self.resampler_quality.clone(),
             }));
         }
         events
+    }
+
+    fn vad_score(&self, samples: &[f32], level_db: f32) -> f32 {
+        if !level_db.is_finite() {
+            return 0.0;
+        }
+        if self.vad_mode == "gate" {
+            return if level_db >= self.noise_gate_db { 1.0 } else { 0.0 };
+        }
+        let zcr = zero_crossing_rate(samples);
+        let dynamic_gate = if self.enable_noise_floor {
+            self.noise_floor_db + 10.0
+        } else {
+            self.noise_gate_db
+        };
+        let level_score = ((level_db - dynamic_gate) / 12.0).clamp(0.0, 1.0);
+        let zcr_score = if (0.015..=0.32).contains(&zcr) { 1.0 } else { 0.35 };
+        (level_score * 0.78 + zcr_score * 0.22).clamp(0.0, 1.0)
+    }
+
+    fn update_noise_floor(&mut self, level_db: f32, vad_score: f32) {
+        if !self.enable_noise_floor || !level_db.is_finite() || vad_score > 0.45 {
+            return;
+        }
+        self.noise_floor_db = (self.noise_floor_db * 0.97 + level_db * 0.03).clamp(-90.0, -35.0);
     }
 
     fn compute_gain(&self, level_db: f32) -> f32 {
@@ -488,7 +614,70 @@ impl CaptureProcessor {
     }
 
     fn chunk_duration_ms(&self) -> u32 {
-        ((self.chunk_samples as u64 * 1000) / self.output_rate as u64).max(1) as u32
+        let duration = ((self.chunk_samples as u64 * 1000) / self.output_rate as u64).max(1) as u32;
+        if self.adaptive_chunking && self.speech_active { duration.min(40) } else { duration }
+    }
+}
+
+fn normalize_resampler_quality(value: Option<&str>) -> String {
+    match value.unwrap_or("sinc-lite").trim().to_ascii_lowercase().as_str() {
+        "linear" => "linear".to_string(),
+        _ => "sinc-lite".to_string(),
+    }
+}
+
+fn normalize_vad_mode(value: Option<&str>) -> String {
+    match value.unwrap_or("adaptive").trim().to_ascii_lowercase().as_str() {
+        "gate" => "gate".to_string(),
+        _ => "adaptive".to_string(),
+    }
+}
+
+fn cubic_sample(samples: &[f32], idx: isize, frac: f32) -> f32 {
+    let sample = |offset: isize| -> f32 {
+        let pos = (idx + offset).clamp(0, samples.len().saturating_sub(1) as isize) as usize;
+        samples.get(pos).copied().unwrap_or(0.0)
+    };
+    let y0 = sample(-1);
+    let y1 = sample(0);
+    let y2 = sample(1);
+    let y3 = sample(2);
+    let a0 = y3 - y2 - y0 + y1;
+    let a1 = y0 - y1 - a0;
+    let a2 = y2 - y0;
+    let a3 = y1;
+    (((a0 * frac + a1) * frac + a2) * frac + a3).clamp(-1.0, 1.0)
+}
+
+fn zero_crossing_rate(samples: &[f32]) -> f32 {
+    if samples.len() < 2 {
+        return 0.0;
+    }
+    let mut crossings = 0usize;
+    for pair in samples.windows(2) {
+        if (pair[0] >= 0.0 && pair[1] < 0.0) || (pair[0] < 0.0 && pair[1] >= 0.0) {
+            crossings += 1;
+        }
+    }
+    crossings as f32 / samples.len().saturating_sub(1) as f32
+}
+
+fn platform_strategy() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "wasapi-event-shared-low-latency"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "coreaudio-cpal-hal-compatible"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "alsa-cpal-low-latency"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        "cpal-default"
     }
 }
 
@@ -526,6 +715,11 @@ fn write_event(event: CoreEvent) -> Result<(), String> {
                 "level_db": chunk.level_db,
                 "queue_depth": chunk.queue_depth,
                 "dropped_silent_chunks": chunk.dropped_silent_chunks,
+                "vad_score": chunk.vad_score,
+                "noise_floor_db": chunk.noise_floor_db,
+                "agc_gain": chunk.agc_gain,
+                "resampler": chunk.resampler,
+                "emitted_at_ms": chunk.emitted_at_ms,
                 "data": BASE64.encode(bytes),
             }))
         }
@@ -537,6 +731,10 @@ fn write_event(event: CoreEvent) -> Result<(), String> {
             "speech": metrics.speech,
             "queue_depth": metrics.queue_depth,
             "dropped_silent_chunks": metrics.dropped_silent_chunks,
+            "vad_score": metrics.vad_score,
+            "noise_floor_db": metrics.noise_floor_db,
+            "agc_gain": metrics.agc_gain,
+            "resampler": metrics.resampler,
         })),
         CoreEvent::Error(message) => emit_json(json!({"event": "error", "message": message})),
     }
@@ -546,6 +744,9 @@ fn serve() -> Result<(), String> {
     let (host_id, _) = native_host()?;
     emit_json(json!({"event": "ready", "backend": backend_name(host_id)}))?;
     let mut capture: Option<CaptureRuntime> = None;
+    let mut playback: Option<PlaybackRuntime> = None;
+    let mut last_device_scan = Instant::now();
+    let mut last_device_count = list_devices_snapshot().map(|snapshot| snapshot.devices.len()).unwrap_or(0);
     let (event_tx, event_rx) = mpsc::channel::<CoreEvent>();
     let (command_tx, command_rx) = mpsc::channel::<Result<Command, String>>();
 
@@ -569,7 +770,18 @@ fn serve() -> Result<(), String> {
         }
         let command = match command_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(command) => command,
-            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+                if last_device_scan.elapsed() >= Duration::from_secs(2) {
+                    last_device_scan = Instant::now();
+                    if let Ok(snapshot) = list_devices_snapshot() {
+                        if snapshot.devices.len() != last_device_count {
+                            last_device_count = snapshot.devices.len();
+                            emit_json(json!({"event": "devices_changed", "snapshot": snapshot}))?;
+                        }
+                    }
+                }
+                continue;
+            },
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match command {
@@ -594,6 +806,45 @@ fn serve() -> Result<(), String> {
                     }
                 }
             }
+            Ok(Command::StartPlayback(config)) => {
+                if let Some(runtime) = playback.take() {
+                    runtime.stop.store(true, Ordering::SeqCst);
+                    drop(runtime.sender);
+                    let _ = runtime.worker.join();
+                }
+                match start_playback(config) {
+                    Ok(runtime) => {
+                        playback = Some(runtime);
+                        emit_json(json!({"event": "ok", "cmd": "start-playback"}))?;
+                    }
+                    Err(error) => emit_json(json!({"event": "error", "message": error}))?,
+                }
+            }
+            Ok(Command::PlaybackChunk(chunk)) => {
+                if let Some(runtime) = playback.as_ref() {
+                    match decode_pcm16_base64(&chunk.data) {
+                        Ok(samples) => {
+                            let sample_count = samples.len();
+                            let _ = runtime.sender.send(samples);
+                            emit_json(json!({
+                                "event": "playback_queued",
+                                "channel": chunk.channel,
+                                "sample_rate": chunk.sample_rate.unwrap_or(0),
+                                "samples": sample_count,
+                            }))?;
+                        }
+                        Err(error) => emit_json(json!({"event": "error", "message": error}))?,
+                    }
+                }
+            }
+            Ok(Command::StopPlayback) => {
+                if let Some(runtime) = playback.take() {
+                    runtime.stop.store(true, Ordering::SeqCst);
+                    drop(runtime.sender);
+                    let _ = runtime.worker.join();
+                }
+                emit_json(json!({"event": "ok", "cmd": "stop-playback"}))?;
+            }
             Ok(Command::StopCapture) => {
                 if let Some(runtime) = capture.take() {
                     runtime.stop.store(true, Ordering::SeqCst);
@@ -605,6 +856,11 @@ fn serve() -> Result<(), String> {
                 if let Some(runtime) = capture.take() {
                     runtime.stop.store(true, Ordering::SeqCst);
                     drop(runtime.stream);
+                }
+                if let Some(runtime) = playback.take() {
+                    runtime.stop.store(true, Ordering::SeqCst);
+                    drop(runtime.sender);
+                    let _ = runtime.worker.join();
                 }
                 emit_json(json!({"event": "shutdown"}))?;
                 return Ok(());
@@ -618,7 +874,127 @@ fn serve() -> Result<(), String> {
         runtime.stop.store(true, Ordering::SeqCst);
         drop(runtime.stream);
     }
+    if let Some(runtime) = playback.take() {
+        runtime.stop.store(true, Ordering::SeqCst);
+        drop(runtime.sender);
+        let _ = runtime.worker.join();
+    }
     Ok(())
+}
+
+fn start_playback(config: PlaybackConfig) -> Result<PlaybackRuntime, String> {
+    let (_, host) = native_host()?;
+    let sample_rate = config.sample_rate.unwrap_or(24_000).max(8_000);
+    let (device, _, stable_id) = find_output_device(&host, &config.device_id)?;
+    let device_name = device.name().unwrap_or_else(|_| stable_id.clone());
+    let stream_config = choose_output_config(&device, sample_rate)?;
+    let output_channels = stream_config.channels.max(1) as usize;
+    let (sender, receiver) = mpsc::channel::<Vec<i16>>();
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = stop.clone();
+    let worker = thread::spawn(move || {
+        let _ = run_playback_worker(device, stream_config, output_channels, receiver, worker_stop);
+    });
+    emit_json(json!({
+        "event": "playback_started",
+        "channel": config.channel,
+        "device_name": device_name,
+        "target_sample_rate": sample_rate,
+        "chunk_ms": config.chunk_ms.unwrap_or(20).clamp(10, 120),
+        "platform_strategy": platform_strategy(),
+    }))?;
+    Ok(PlaybackRuntime { stop, sender, worker })
+}
+
+fn find_output_device(host: &Host, requested_id: &str) -> Result<(Device, usize, String), String> {
+    let devices: Vec<Device> = host.output_devices().map_err(|err| err.to_string())?.collect();
+    let requested = requested_id.trim();
+    if requested.is_empty() {
+        return host
+            .default_output_device()
+            .map(|device| (device, 0, "default".to_string()))
+            .ok_or_else(|| "No default output device available".to_string());
+    }
+    for (index, device) in devices.into_iter().enumerate() {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        let stable = device_stable_id("output", &name, index);
+        if requested == stable || requested == index.to_string() || requested == name || name.to_lowercase().contains(&requested.to_lowercase()) {
+            return Ok((device, index, stable));
+        }
+    }
+    Err(format!("Output device not found: {requested}"))
+}
+
+fn choose_output_config(device: &Device, target_rate: u32) -> Result<StreamConfig, String> {
+    let mut configs: Vec<_> = device.supported_output_configs().map_err(|err| err.to_string())?.collect();
+    configs.sort_by_key(|config| {
+        let min = config.min_sample_rate().0;
+        let max = config.max_sample_rate().0;
+        if min <= target_rate && target_rate <= max { 0 } else { min.abs_diff(target_rate).min(max.abs_diff(target_rate)) }
+    });
+    let range = configs.into_iter().next().ok_or_else(|| "No supported output config".to_string())?;
+    let selected_rate = if range.min_sample_rate().0 <= target_rate && target_rate <= range.max_sample_rate().0 {
+        cpal::SampleRate(target_rate)
+    } else {
+        range.max_sample_rate()
+    };
+    Ok(range.with_sample_rate(selected_rate).config())
+}
+
+fn run_playback_worker(
+    device: Device,
+    config: StreamConfig,
+    output_channels: usize,
+    receiver: mpsc::Receiver<Vec<i16>>,
+    stop: Arc<AtomicBool>,
+) -> Result<(), String> {
+    let pending = Arc::new(Mutex::new(VecDeque::<i16>::new()));
+    let pending_cb = pending.clone();
+    let err_fn = |err| eprintln!("Playback stream error: {err}");
+    let stream = device
+        .build_output_stream(
+            &config,
+            move |data: &mut [f32], _| {
+                if let Ok(mut queue) = pending_cb.lock() {
+                    for frame in data.chunks_mut(output_channels) {
+                        let sample = queue.pop_front().unwrap_or(0) as f32 / i16::MAX as f32;
+                        for out in frame {
+                            *out = sample;
+                        }
+                    }
+                }
+            },
+            err_fn,
+            None,
+        )
+        .map_err(|err| err.to_string())?;
+    stream.play().map_err(|err| err.to_string())?;
+    while !stop.load(Ordering::SeqCst) {
+        match receiver.recv_timeout(Duration::from_millis(20)) {
+            Ok(samples) => {
+                if let Ok(mut queue) = pending.lock() {
+                    queue.extend(samples);
+                    let max_samples = config.sample_rate.0 as usize * 2;
+                    while queue.len() > max_samples {
+                        queue.pop_front();
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    drop(stream);
+    Ok(())
+}
+
+fn decode_pcm16_base64(data: &str) -> Result<Vec<i16>, String> {
+    let bytes = BASE64.decode(data).map_err(|err| err.to_string())?;
+    let mut samples = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks_exact(2) {
+        samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+    }
+    Ok(samples)
 }
 
 fn main() {

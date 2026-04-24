@@ -586,9 +586,39 @@
             </label>
           </div>
 
+          <div class="channel-device-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="platform.resamplerQuality">Resampler</span>
+              <div class="custom-select" data-select="audio-resampler-quality"></div>
+            </div>
+            <div class="field">
+              <span class="field-label" data-i18n="platform.vadMode">VAD Mode</span>
+              <div class="custom-select" data-select="audio-vad-mode"></div>
+            </div>
+          </div>
+
+          <div class="channel-device-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="platform.playbackBackend">Playback Backend</span>
+              <div class="custom-select" data-select="audio-playback-backend"></div>
+            </div>
+          </div>
+
           <label class="channel-mini-toggle">
             <input id="audioNativeFallbackInput" type="checkbox">
             <span data-i18n="platform.nativeFallback">Fallback to Python when native capture fails</span>
+          </label>
+          <label class="channel-mini-toggle">
+            <input id="audioNoiseFloorInput" type="checkbox">
+            <span data-i18n="platform.noiseFloor">Adaptive noise floor</span>
+          </label>
+          <label class="channel-mini-toggle">
+            <input id="audioAdaptiveChunkingInput" type="checkbox">
+            <span data-i18n="platform.adaptiveChunking">Adaptive AST chunking</span>
+          </label>
+          <label class="channel-mini-toggle">
+            <input id="audioAutoProfileInput" type="checkbox">
+            <span data-i18n="platform.autoProfile">Auto performance profile</span>
           </label>
 
           <label class="credential-field">

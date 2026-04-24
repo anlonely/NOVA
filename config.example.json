@@ -32,7 +32,13 @@
   "audio_core": {
     "capture_backend": "python",
     "native_capture_fallback": true,
-    "pre_roll_ms": 160
+    "pre_roll_ms": 160,
+    "resampler_quality": "sinc-lite",
+    "vad_mode": "adaptive",
+    "enable_noise_floor": true,
+    "adaptive_chunking": true,
+    "playback_backend": "python",
+    "auto_profile": true
   },
   "channels": {
     "outbound": {

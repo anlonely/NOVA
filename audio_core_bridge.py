@@ -69,6 +69,11 @@ class NativeAudioCoreBridge:
         session.start(config)
         return session
 
+    def start_playback(self, config: dict[str, Any]) -> NativePlaybackSession:
+        session = NativePlaybackSession(self.binary_path)
+        session.start(config)
+        return session
+
 
 class NativeCaptureSession:
     def __init__(self, binary_path: Path) -> None:
@@ -206,3 +211,54 @@ class NativeCaptureSession:
             except queue.Empty:
                 pass
             self.stderr_lines.put_nowait(line)
+
+
+class NativePlaybackSession(NativeCaptureSession):
+    def start(self, config: dict[str, Any]) -> None:
+        if not self.binary_path.exists():
+            raise RuntimeError(f"Native audio core binary is missing: {self.binary_path}")
+        self.process = subprocess.Popen(
+            [str(self.binary_path), "serve"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+        self._reader_thread = threading.Thread(target=self._read_stdout, name="native-playback-stdout", daemon=True)
+        self._stderr_thread = threading.Thread(target=self._read_stderr, name="native-playback-stderr", daemon=True)
+        self._reader_thread.start()
+        self._stderr_thread.start()
+        ready = self.read_event(timeout=5)
+        if not ready or ready.get("event") != "ready":
+            self.close()
+            raise RuntimeError(f"Native audio core did not become ready: {ready or self.recent_stderr()}")
+        self.send({"cmd": "start-playback", **config})
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            event = self.read_event(timeout=0.5)
+            if not event:
+                continue
+            if event.get("event") == "ok" and event.get("cmd") == "start-playback":
+                return
+            if event.get("event") == "error":
+                self.close()
+                raise RuntimeError(str(event.get("message") or "Native playback failed."))
+        self.close()
+        raise RuntimeError("Timed out while starting native playback.")
+
+    def send_audio(self, channel: str, pcm16: bytes, sample_rate: int) -> None:
+        self.send({
+            "cmd": "playback-chunk",
+            "channel": channel,
+            "sample_rate": sample_rate,
+            "data": base64.b64encode(pcm16).decode("ascii"),
+        })
+
+    def stop(self) -> None:
+        if self.is_running:
+            try:
+                self.send({"cmd": "stop-playback"})
+            except Exception:
+                pass

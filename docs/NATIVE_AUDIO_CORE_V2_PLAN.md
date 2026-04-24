@@ -319,3 +319,33 @@ Windows 构建由 GitHub Actions 验证。
 - denoise 算法引入。
 - 多进程多通道复杂调度优化。
 - 代码签名和 notarization。
+
+---
+
+## 10. Native Audio Core v3 优化顺序（一次性执行版）
+
+本节固化本轮“全部优化”的最终顺序，后续不再扩展范围，避免影响当前可用主链路。
+
+1. **重采样升级**
+   - 默认 `sinc-lite`，用 cubic interpolation 提升 48k/44.1k -> 16k 的语音稳定性。
+   - 保留 `linear` 作为最低 CPU 回退。
+2. **VAD 升级**
+   - 默认 `adaptive`，结合 RMS、动态噪声底、过零率评分。
+   - 保留 `gate` 作为简单阈值回退。
+3. **低延迟协议扩展**
+   - `audio_chunk` 和 `metrics` 增加 `vad_score`、`noise_floor_db`、`agc_gain`、`resampler`、`emitted_at_ms`。
+   - 预留 native playback 命令：`start-playback`、`playback-chunk`、`stop-playback`。
+4. **设备热插拔**
+   - `serve` 模式每 2 秒轮询设备数量变化，变化时发出 `devices_changed`。
+5. **平台策略暴露**
+   - Windows 标记 `wasapi-event-shared-low-latency`。
+   - macOS 标记 `coreaudio-cpal-hal-compatible`。
+   - 深层 WASAPI exclusive / AudioUnit HAL 作为后续需专用权限和设备验证的替换实现，不在本轮破坏性切换。
+6. **AST 发送策略优化**
+   - native capture 支持 `adaptive_chunking`，语音活跃时限制低延迟 chunk。
+   - Python AST 队列保持兼容，不改变服务端协议。
+7. **诊断增强**
+   - Controller/UI 展示 capture backend、playback backend、resampler、VAD mode、pre-roll、fallback、health。
+   - 分通道 stats 增加 native VAD、噪声底、AGC gain、resampler、chunk latency。
+8. **自动性能档位**
+   - 开启 `auto_profile` 后根据 native 可用性和虚拟/loopback 输入自动选择更稳的 resampler/VAD/chunk 策略。

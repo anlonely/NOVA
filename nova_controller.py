@@ -980,6 +980,12 @@ class NovaController:
             "audio-capture-backend": "python",
             "audio-native-fallback": "1",
             "audio-pre-roll-ms": "160",
+            "audio-resampler-quality": "sinc-lite",
+            "audio-vad-mode": "adaptive",
+            "audio-noise-floor": "1",
+            "audio-adaptive-chunking": "1",
+            "audio-playback-backend": "python",
+            "audio-auto-profile": "1",
             "voice-clone-speaker-id": PRIMARY_VOICE_CLONE_SPEAKER,
             "voice-clone-sample-path": "",
             "voice-clone-reference-text": "",
@@ -1096,6 +1102,12 @@ class NovaController:
         self.values["audio-capture-backend"] = str(audio_core.get("capture_backend", self.values["audio-capture-backend"]) or "python")
         self.values["audio-native-fallback"] = "1" if audio_core.get("native_capture_fallback", self.values["audio-native-fallback"] == "1") else "0"
         self.values["audio-pre-roll-ms"] = str(audio_core.get("pre_roll_ms", self.values["audio-pre-roll-ms"]))
+        self.values["audio-resampler-quality"] = str(audio_core.get("resampler_quality", self.values["audio-resampler-quality"]) or "sinc-lite")
+        self.values["audio-vad-mode"] = str(audio_core.get("vad_mode", self.values["audio-vad-mode"]) or "adaptive")
+        self.values["audio-noise-floor"] = "1" if audio_core.get("enable_noise_floor", self.values["audio-noise-floor"] == "1") else "0"
+        self.values["audio-adaptive-chunking"] = "1" if audio_core.get("adaptive_chunking", self.values["audio-adaptive-chunking"] == "1") else "0"
+        self.values["audio-playback-backend"] = str(audio_core.get("playback_backend", self.values["audio-playback-backend"]) or "python")
+        self.values["audio-auto-profile"] = "1" if audio_core.get("auto_profile", self.values["audio-auto-profile"] == "1") else "0"
 
         voice_clone = data.get("voice_clone", {})
         self.values["voice-clone-speaker-id"] = str(voice_clone.get("speaker_id", self.values["voice-clone-speaker-id"]) or "")
@@ -1315,6 +1327,21 @@ class NovaController:
         if self.values.get("audio-pre-roll-ms") != str(pre_roll_ms):
             self.values["audio-pre-roll-ms"] = str(pre_roll_ms)
             changed = True
+        for option_key, allowed, fallback in (
+            ("audio-resampler-quality", {"linear", "sinc-lite"}, "sinc-lite"),
+            ("audio-vad-mode", {"gate", "adaptive"}, "adaptive"),
+            ("audio-playback-backend", {"python", "native"}, "python"),
+        ):
+            if self.values.get(option_key) not in allowed:
+                self.values[option_key] = fallback
+                changed = True
+        for toggle_key in ("audio-noise-floor", "audio-adaptive-chunking", "audio-auto-profile"):
+            if self.values.get(toggle_key) not in {"0", "1"}:
+                self.values[toggle_key] = "1"
+                changed = True
+
+        if self.values.get("audio-auto-profile") == "1":
+            self._auto_tune_audio_profile()
 
         for alias in CHANNEL_ALIASES:
             scene_defaults = SCENE_TEMPLATES[self.scene_id][CHANNEL_SCENE_MAP[alias]]
@@ -1377,6 +1404,21 @@ class NovaController:
             note=str(self.voice_clone_snapshot.get("message", "") or ""),
         )
         return changed
+
+
+    def _auto_tune_audio_profile(self) -> None:
+        native_available = self.native_audio_core.available and bool(self.native_audio_health.get("ok"))
+        virtual_inputs = sum(1 for item in self.catalog.microphones.values() if item.virtual or item.loopback)
+        if native_available:
+            self.values["audio-resampler-quality"] = "sinc-lite"
+            self.values["audio-vad-mode"] = "adaptive"
+            self.values["audio-adaptive-chunking"] = "1"
+        if virtual_inputs >= 1:
+            self.values["audio-noise-floor"] = "1"
+        if self.values.get("audio-capture-backend") == "native":
+            for alias in CHANNEL_ALIASES:
+                if self.values.get(f"{alias}-profile") == "studio":
+                    self.values[f"{alias}-profile"] = "balanced"
 
     def refresh_devices(self, preserve_selection: bool = True) -> dict[str, Any]:
         previous = dict(self.values)
@@ -1687,6 +1729,12 @@ class NovaController:
                 "capture_backend": self.values["audio-capture-backend"],
                 "native_capture_fallback": self.values["audio-native-fallback"] == "1",
                 "pre_roll_ms": max(0, min(safe_int(self.values["audio-pre-roll-ms"], 160), 600)),
+                "resampler_quality": self.values["audio-resampler-quality"],
+                "vad_mode": self.values["audio-vad-mode"],
+                "enable_noise_floor": self.values["audio-noise-floor"] == "1",
+                "adaptive_chunking": self.values["audio-adaptive-chunking"] == "1",
+                "playback_backend": self.values["audio-playback-backend"],
+                "auto_profile": self.values["audio-auto-profile"] == "1",
             },
             "channels": {
                 "outbound": self._channel_config("a"),
@@ -1782,6 +1830,11 @@ class NovaController:
             capture_backend=self.values["audio-capture-backend"],
             native_capture_fallback=self.values["audio-native-fallback"] == "1",
             pre_roll_ms=max(0, min(safe_int(self.values["audio-pre-roll-ms"], 160), 600)),
+            resampler_quality=self.values["audio-resampler-quality"],
+            vad_mode=self.values["audio-vad-mode"],
+            enable_noise_floor=self.values["audio-noise-floor"] == "1",
+            adaptive_chunking=self.values["audio-adaptive-chunking"] == "1",
+            playback_backend=self.values["audio-playback-backend"],
         )
 
     def _validate_language_pair(self, alias: str) -> str | None:
@@ -2003,6 +2056,12 @@ class NovaController:
             "captureBackend": capture_backend,
             "fallbackEnabled": self.values.get("audio-native-fallback", "1") == "1",
             "preRollMs": max(0, min(safe_int(self.values.get("audio-pre-roll-ms"), 160), 600)),
+            "resamplerQuality": self.values.get("audio-resampler-quality", "sinc-lite"),
+            "vadMode": self.values.get("audio-vad-mode", "adaptive"),
+            "noiseFloorEnabled": self.values.get("audio-noise-floor", "1") == "1",
+            "adaptiveChunking": self.values.get("audio-adaptive-chunking", "1") == "1",
+            "playbackBackend": self.values.get("audio-playback-backend", "python"),
+            "autoProfile": self.values.get("audio-auto-profile", "1") == "1",
             "health": health,
             "binaryPath": str(self.native_audio_core.binary_path),
             "deviceCount": len(native_devices),

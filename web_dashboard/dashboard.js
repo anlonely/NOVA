@@ -196,6 +196,12 @@ const I18N = {
     "platform.captureBackend": "Capture Backend",
     "platform.preRollMs": "Pre-roll ms",
     "platform.nativeFallback": "Fallback to Python when native capture fails",
+    "platform.resamplerQuality": "Resampler",
+    "platform.vadMode": "VAD Mode",
+    "platform.playbackBackend": "Playback Backend",
+    "platform.noiseFloor": "Adaptive noise floor",
+    "platform.adaptiveChunking": "Adaptive AST chunking",
+    "platform.autoProfile": "Auto performance profile",
     "domain.eyebrow": "Domain Bias",
     "domain.title": "Recognition Bias",
     "domain.preset": "Domain Preset",
@@ -349,6 +355,12 @@ const I18N = {
     "platform.captureBackend": "采集后端",
     "platform.preRollMs": "预卷毫秒",
     "platform.nativeFallback": "原生采集失败时回退 Python",
+    "platform.resamplerQuality": "重采样器",
+    "platform.vadMode": "VAD 模式",
+    "platform.playbackBackend": "播放后端",
+    "platform.noiseFloor": "自适应噪声底",
+    "platform.adaptiveChunking": "自适应 AST 分片",
+    "platform.autoProfile": "自动性能档位",
     "domain.eyebrow": "领域偏置",
     "domain.title": "识别偏置",
     "domain.preset": "领域预设",
@@ -532,6 +544,18 @@ const fallbackOptionGroups = {
     { value: "python", label: "Python Capture", hint: "Stable fallback path" },
     { value: "native", label: "Native Capture", hint: "Rust CoreAudio/WASAPI low-latency path" },
   ],
+  "audio-resampler-quality": [
+    { value: "sinc-lite", label: "Sinc Lite", hint: "Higher quality cubic resampling" },
+    { value: "linear", label: "Linear", hint: "Lowest CPU fallback" },
+  ],
+  "audio-vad-mode": [
+    { value: "adaptive", label: "Adaptive VAD", hint: "Noise floor + ZCR speech scoring" },
+    { value: "gate", label: "Gate", hint: "Simple RMS gate" },
+  ],
+  "audio-playback-backend": [
+    { value: "python", label: "Python Playback", hint: "Stable current playback" },
+    { value: "native", label: "Native Playback", hint: "Rust playback protocol ready / safe fallback" },
+  ],
   "voice-clone-speaker-id": makeCloneOptions(),
   "a-clone-speaker": makeCloneOptions(),
   "b-clone-speaker": makeCloneOptions(),
@@ -554,6 +578,12 @@ const fallbackState = {
     "audio-capture-backend": "python",
     "audio-native-fallback": "1",
     "audio-pre-roll-ms": "160",
+    "audio-resampler-quality": "sinc-lite",
+    "audio-vad-mode": "adaptive",
+    "audio-noise-floor": "1",
+    "audio-adaptive-chunking": "1",
+    "audio-playback-backend": "python",
+    "audio-auto-profile": "1",
     "voice-clone-speaker-id": "S_ATMtmRu02",
     "voice-clone-sample-path": "",
     "voice-clone-reference-text": "",
@@ -850,6 +880,9 @@ const domainGlossaryInput = document.getElementById("domainGlossaryInput");
 const updateManifestInput = document.getElementById("updateManifestInput");
 const audioPreRollInput = document.getElementById("audioPreRollInput");
 const audioNativeFallbackInput = document.getElementById("audioNativeFallbackInput");
+const audioNoiseFloorInput = document.getElementById("audioNoiseFloorInput");
+const audioAdaptiveChunkingInput = document.getElementById("audioAdaptiveChunkingInput");
+const audioAutoProfileInput = document.getElementById("audioAutoProfileInput");
 const audioCoreStatusNote = document.getElementById("audioCoreStatusNote");
 const voiceCloneSamplePathInput = document.getElementById("voiceCloneSamplePathInput");
 const voiceCloneReferenceInput = document.getElementById("voiceCloneReferenceInput");
@@ -913,6 +946,9 @@ const advancedFieldInputs = {
 
 const checkboxInputs = {
   "audio-native-fallback": audioNativeFallbackInput,
+  "audio-noise-floor": audioNoiseFloorInput,
+  "audio-adaptive-chunking": audioAdaptiveChunkingInput,
+  "audio-auto-profile": audioAutoProfileInput,
 };
 const numericFieldInputs = {};
 const transcriptScrollState = new Map();
@@ -1784,7 +1820,7 @@ function renderPlatformState() {
   if (audioCoreStatusNote) {
     const health = nativeCore.health || {};
     const healthText = nativeCore.available ? (health.ok ? "healthy" : health.error || "not ready") : "binary missing";
-    audioCoreStatusNote.textContent = `Capture ${captureLabel} / runtime ${nativeCore.runtime || "python"} / pre-roll ${nativeCore.preRollMs || appState.values["audio-pre-roll-ms"] || 0}ms / fallback ${nativeCore.fallbackEnabled ? "on" : "off"} / ${healthText}`;
+    audioCoreStatusNote.textContent = `Capture ${captureLabel} / playback ${nativeCore.playbackBackend || "python"} / ${nativeCore.resamplerQuality || "sinc-lite"} / ${nativeCore.vadMode || "adaptive"} / pre-roll ${nativeCore.preRollMs || appState.values["audio-pre-roll-ms"] || 0}ms / fallback ${nativeCore.fallbackEnabled ? "on" : "off"} / ${healthText}`;
   }
 
   const updater = appState.updater || {};
@@ -2090,7 +2126,8 @@ function renderRouteDetail(alias, runtime) {
   refs.output.textContent = getOptionLabel(`${alias}-output`) || "--";
   refs.latency.textContent = formatRouteLatency(stats);
   refs.queue.textContent = formatQueue(stats);
-  refs.level.textContent = formatAudioLevel(stats);
+  const nativeBits = stats.native_vad_score != null ? ` / VAD ${Number(stats.native_vad_score).toFixed(2)}` : "";
+  refs.level.textContent = `${formatAudioLevel(stats)}${nativeBits}`;
   refs.input.title = refs.input.textContent;
   refs.output.title = refs.output.textContent;
   refs.latency.title = refs.latency.textContent;
