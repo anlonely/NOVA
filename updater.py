@@ -5,12 +5,14 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
-VERSION_FILE = ROOT / "app_version.json"
-DOWNLOAD_DIR = ROOT / "output" / "updates"
+from paths import get_app_root, get_resource_root
+
+APP_ROOT = get_app_root()
+RESOURCE_ROOT = get_resource_root()
+VERSION_FILE = RESOURCE_ROOT / "app_version.json"
+DOWNLOAD_DIR = APP_ROOT / "output" / "updates"
 
 
 def _parse_version(value: str) -> tuple[int, ...]:

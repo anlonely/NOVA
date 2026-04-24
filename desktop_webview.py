@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, Slot, QUrl
@@ -15,9 +14,12 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow
 
 from nova_controller import NovaController
+from paths import get_app_root, get_resource_root
 
-ROOT = Path(__file__).resolve().parent
-HTML_PATH = ROOT / "web_dashboard" / "index.html"
+APP_ROOT = get_app_root()
+RESOURCE_ROOT = get_resource_root()
+ROOT = APP_ROOT
+HTML_PATH = RESOURCE_ROOT / "web_dashboard" / "index.html"
 SINGLE_INSTANCE_MUTEX = None
 ERROR_ALREADY_EXISTS = 183
 

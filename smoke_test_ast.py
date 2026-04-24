@@ -13,10 +13,11 @@ import websockets
 
 from ast_bridge import DEFAULT_RESOURCE_ID, use_system_proxy
 from custom_dns import dns_override, parse_dns_hosts, parse_dns_servers, target_hosts_for_url
+from paths import get_app_root
 from python_protogen.common.events_pb2 import Type
 from python_protogen.products.understanding.ast.ast_service_pb2 import TranslateRequest, TranslateResponse
 
-ROOT = Path(__file__).resolve().parent
+ROOT = get_app_root()
 CONFIG_PATH = ROOT / "config.local.json"
 SAMPLE_AUDIO_PATH = ROOT / ".downloads" / "ast_python" / "ast_python" / "test_audio.wav"
 OUTPUT_DIR = ROOT / "output"

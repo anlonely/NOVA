@@ -5,7 +5,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
+from paths import get_resource_root
+
+ROOT = get_resource_root()
 NATIVE_CORE_EXE = ROOT / "native_audio_core" / "target" / "release" / "nova-audio-core.exe"
 
 

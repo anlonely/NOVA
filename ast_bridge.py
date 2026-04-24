@@ -19,6 +19,7 @@ import soundcard as sc
 import websockets
 
 from custom_dns import dns_override, target_hosts_for_url
+from paths import get_app_root
 from python_protogen.common.events_pb2 import Type
 from python_protogen.products.understanding.ast.ast_service_pb2 import TranslateRequest, TranslateResponse
 from voice_clone_manager import CloneTTSSynthesizer, VoiceCloneError
@@ -35,7 +36,7 @@ POST_SPEECH_FINALIZE_MS = 360
 AUTO_RECONNECT_BASE_DELAY_SEC = 1.5
 AUTO_RECONNECT_MAX_DELAY_SEC = 12.0
 AUTO_RECONNECT_MAX_ATTEMPTS = 6
-ROOT = Path(__file__).resolve().parent
+ROOT = get_app_root()
 LOG_DIR = ROOT / "output" / "logs"
 
 LANGUAGE_OPTIONS: tuple[tuple[str, str], ...] = (

@@ -1,70 +1,94 @@
-# Nebula Interp Console
+# NOVA INTERP
 
-这是当前工作区里的 `V2` 桌面原型，定位已经不是“最小可跑 Demo”，而是朝着商用交付形态推进的一版控制台。
+NOVA INTERP is a Windows-first desktop console for low-latency bilingual interpreting with independent audio routing, real-time subtitles, Volcengine AST streaming, and voice-clone workflow hooks.
 
-## 这版已经具备的能力
+This repository currently ships:
 
-- 双通道独立配置
-- 输入设备 / 输出设备 / 回环输入选择
-- 双通道源语言 / 目标语言独立设置
-- 低延迟性能档位：`Turbo` / `Balanced` / `Studio`
-- 每通道可调：
-  - 分包时长
-  - 播放缓冲
-  - 输出采样率
-  - 输入增益
-  - 音色 ID
-  - 字幕模式
-- 路由图、诊断面板、实时延迟指标
-- 字幕浮窗
-- 会话导出
-- 本地配置持久化
+- A Qt + Web dashboard for the primary desktop app
+- A legacy Tk prototype kept for fallback testing
+- Volcengine AST WebSocket integration
+- Voice Clone V3 training and preview hooks
+- A 3-lane routing model for mic, platform audio, and game voice
+- Optional Rust native audio-core scaffolding for future WASAPI upgrades
 
-## 启动
+## Current feature set
+
+- Channel A, B, and C can each choose independent input/output devices
+- Dual-pane live transcript area with source and translated text
+- Per-channel performance profiles, subtitle modes, and latency stats
+- Domain bias packs, including a Rust-focused recognition preset
+- Voice Clone V3 controls, status polling, and preview playback hooks
+- Update-check hooks and version manifest support
+- Windows-friendly dark dashboard with custom dropdowns and drawers
+
+## Quick start
+
+1. Create a local config file from the example:
+
+```powershell
+Copy-Item .\config.example.json .\config.local.json
+```
+
+2. Fill in your local credentials in `config.local.json`:
+
+- `app_key`
+- `access_key`
+- `secret_key`
+
+3. Launch the desktop app:
 
 ```powershell
 .\launch.ps1
 ```
 
-如果虚拟环境已经存在，也可以直接：
+## Other entry points
+
+- Main desktop dashboard: `.\launch.ps1`
+- Legacy Tk prototype: `.\launch_legacy_tk.ps1`
+- Static dashboard preview in browser: `.\launch_web_dashboard.ps1`
+- AST smoke test: `.\.venv\Scripts\python smoke_test_ast.py`
+
+## Packaging for Windows
+
+Use the local build script to generate a distributable Windows package:
 
 ```powershell
-.\.venv\Scripts\python app.py
+.\scripts\build_windows.ps1
 ```
 
-## 快速联调
+The script will:
 
-无需打开界面，直接验证 AST 联通：
+- install runtime and build dependencies into `.venv`
+- optionally build `native_audio_core` if Rust is available
+- package the desktop app with PyInstaller
+- emit a versioned zip bundle and SHA256 file under `output\release`
 
-```powershell
-.\.venv\Scripts\python smoke_test_ast.py
-```
+## GitHub Actions
 
-它会在 `output/` 下生成：
+The repository includes a Windows packaging workflow:
 
-- `smoke_translation.txt`
-- `smoke_translation.wav`
+- push to `main`: build the app and upload the release bundle as an artifact
+- push a tag like `v0.4.0`: build the app and publish the zip bundle to GitHub Releases
+- manual trigger: run the workflow from GitHub Actions without creating a tag
 
-## 当前界面建议场景
+## Security notes
 
-- `Discord 双向同传`
-- `双向都听英文`
-- `字幕优先低延迟`
-- `演示保真模式`
+- `config.local.json` is intentionally ignored and should never be committed
+- `config.example.json` is the safe template to share publicly
+- local build outputs, logs, downloads, and virtual environments are ignored
 
-## 凭证
+## Repository layout
 
-当前这条 AST WebSocket 实测使用：
+- `desktop_webview.py`: desktop entry point for the Qt/Web app
+- `nova_controller.py`: runtime controller, channel orchestration, and state bridge
+- `web_dashboard/`: dashboard HTML, CSS, and JS
+- `ast_bridge.py`: Volcengine AST streaming channel implementation
+- `voice_clone_manager.py`: voice-clone API calls and preview helpers
+- `native_audio_core/`: Rust audio-core scaffold
+- `docs/`: product plan and delivery backlog
+- `scripts/`: local packaging helpers
 
-- `APP ID`
-- `Access Token`
-- `Resource ID`
+## Product docs
 
-`Secret Key` 已在界面和配置中保留，但当前版本没有用于 AST 直连。后续如果加声音复刻 API 或服务端签名代理，会用到它。
-
-## 文档
-
-商用版产品方案和落地路线已经整理到：
-
-- [docs/COMMERCIAL_V2_PLAN.md](docs/COMMERCIAL_V2_PLAN.md)
-- [docs/DELIVERY_BACKLOG.md](docs/DELIVERY_BACKLOG.md)
+- [Commercial plan](docs/COMMERCIAL_V2_PLAN.md)
+- [Delivery backlog](docs/DELIVERY_BACKLOG.md)

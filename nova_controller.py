@@ -32,6 +32,7 @@ from ast_bridge import (
     use_system_proxy as ast_use_system_proxy,
 )
 from custom_dns import dns_override, format_dns_csv, parse_dns_hosts, parse_dns_servers, target_hosts_for_url
+from paths import get_app_root, get_resource_root
 from updater import AppUpdater
 from voice_clone_manager import (
     VOICE_CLONE_BILLING_RESOURCE_ID,
@@ -42,12 +43,14 @@ from voice_clone_manager import (
 from python_protogen.common.events_pb2 import Type
 from python_protogen.products.understanding.ast.ast_service_pb2 import TranslateRequest, TranslateResponse
 
-ROOT = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT / "config.local.json"
-OUTPUT_DIR = ROOT / "output"
-VERSION_PATH = ROOT / "app_version.json"
-VOICE_CLONE_SAMPLE_DIR = ROOT / ".downloads" / "voice_clone_samples"
-VOICE_PREVIEW_SOURCE_DIR = ROOT / ".downloads" / "voice_preview_sources"
+APP_ROOT = get_app_root()
+RESOURCE_ROOT = get_resource_root()
+ROOT = APP_ROOT
+CONFIG_PATH = APP_ROOT / "config.local.json"
+OUTPUT_DIR = APP_ROOT / "output"
+VERSION_PATH = RESOURCE_ROOT / "app_version.json"
+VOICE_CLONE_SAMPLE_DIR = APP_ROOT / ".downloads" / "voice_clone_samples"
+VOICE_PREVIEW_SOURCE_DIR = APP_ROOT / ".downloads" / "voice_preview_sources"
 VOICE_CLONE_RECORD_SAMPLE_RATE = DEFAULT_INPUT_SAMPLE_RATE
 VOICE_CLONE_RECORD_BLOCK_FRAMES = 1600
 VOICE_CLONE_MIN_SAMPLE_SECONDS = 1.2

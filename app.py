@@ -23,8 +23,9 @@ from ast_bridge import (
     get_preset,
     language_label,
 )
+from paths import get_app_root
 
-ROOT = Path(__file__).resolve().parent
+ROOT = get_app_root()
 CONFIG_PATH = ROOT / "config.local.json"
 OUTPUT_DIR = ROOT / "output"
 
