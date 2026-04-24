@@ -919,6 +919,8 @@ class NovaController:
             "resourceId": DEFAULT_RESOURCE_ID,
         }
         self.native_audio_snapshot: dict[str, Any] = self.native_audio_core.enumerate_devices() or {}
+        self.native_audio_health: dict[str, Any] = self.native_audio_core.health() if self.native_audio_core.available else {"ok": False}
+        self.native_audio_health_checked_at = time.time()
         self.update_snapshot: dict[str, Any] = {
             "current": dict(self.updater.current),
             "lastCheck": None,
@@ -975,6 +977,9 @@ class NovaController:
             "network-dns-servers": "",
             "network-dns-hosts": "",
             "update-manifest-url": str(self.updater.current.get("manifest_url", "") or ""),
+            "audio-capture-backend": "python",
+            "audio-native-fallback": "1",
+            "audio-pre-roll-ms": "160",
             "voice-clone-speaker-id": PRIMARY_VOICE_CLONE_SPEAKER,
             "voice-clone-sample-path": "",
             "voice-clone-reference-text": "",
@@ -1086,6 +1091,11 @@ class NovaController:
         network = data.get("network", {})
         self.values["network-dns-servers"] = format_dns_csv(parse_dns_servers(network.get("dns_servers")))
         self.values["network-dns-hosts"] = format_dns_csv(parse_dns_hosts(network.get("dns_hosts")))
+
+        audio_core = data.get("audio_core", {})
+        self.values["audio-capture-backend"] = str(audio_core.get("capture_backend", self.values["audio-capture-backend"]) or "python")
+        self.values["audio-native-fallback"] = "1" if audio_core.get("native_capture_fallback", self.values["audio-native-fallback"] == "1") else "0"
+        self.values["audio-pre-roll-ms"] = str(audio_core.get("pre_roll_ms", self.values["audio-pre-roll-ms"]))
 
         voice_clone = data.get("voice_clone", {})
         self.values["voice-clone-speaker-id"] = str(voice_clone.get("speaker_id", self.values["voice-clone-speaker-id"]) or "")
@@ -1295,6 +1305,17 @@ class NovaController:
             self._apply_domain_pack_values(self.values["domain-preset"], overwrite_custom=True)
             changed = True
 
+        if self.values.get("audio-capture-backend") not in {"python", "native"}:
+            self.values["audio-capture-backend"] = "python"
+            changed = True
+        if self.values.get("audio-native-fallback") not in {"0", "1"}:
+            self.values["audio-native-fallback"] = "1"
+            changed = True
+        pre_roll_ms = max(0, min(safe_int(self.values.get("audio-pre-roll-ms"), 160), 600))
+        if self.values.get("audio-pre-roll-ms") != str(pre_roll_ms):
+            self.values["audio-pre-roll-ms"] = str(pre_roll_ms)
+            changed = True
+
         for alias in CHANNEL_ALIASES:
             scene_defaults = SCENE_TEMPLATES[self.scene_id][CHANNEL_SCENE_MAP[alias]]
 
@@ -1361,6 +1382,8 @@ class NovaController:
         previous = dict(self.values)
         self.catalog.refresh()
         self.native_audio_snapshot = self.native_audio_core.enumerate_devices() or {}
+        self.native_audio_health = self.native_audio_core.health() if self.native_audio_core.available else {"ok": False}
+        self.native_audio_health_checked_at = time.time()
         if preserve_selection:
             for alias in CHANNEL_ALIASES:
                 self.values[f"{alias}-input"] = self._resolve_selection(previous[f"{alias}-input"], self.catalog.microphones, f"{alias}-input")
@@ -1660,6 +1683,11 @@ class NovaController:
                 "dns_servers": list(parse_dns_servers(self.values["network-dns-servers"])),
                 "dns_hosts": list(parse_dns_hosts(self.values["network-dns-hosts"])),
             },
+            "audio_core": {
+                "capture_backend": self.values["audio-capture-backend"],
+                "native_capture_fallback": self.values["audio-native-fallback"] == "1",
+                "pre_roll_ms": max(0, min(safe_int(self.values["audio-pre-roll-ms"], 160), 600)),
+            },
             "channels": {
                 "outbound": self._channel_config("a"),
                 "inbound": self._channel_config("b"),
@@ -1751,6 +1779,9 @@ class NovaController:
             local_tts_voice=clone_speaker,
             local_tts_cluster="volcano_icl",
             local_tts_speed=max(0.6, min(channel_config["voice_clone_speed"], 1.8)),
+            capture_backend=self.values["audio-capture-backend"],
+            native_capture_fallback=self.values["audio-native-fallback"] == "1",
+            pre_roll_ms=max(0, min(safe_int(self.values["audio-pre-roll-ms"], 160), 600)),
         )
 
     def _validate_language_pair(self, alias: str) -> str | None:
@@ -1959,10 +1990,20 @@ class NovaController:
 
     def _native_audio_state(self) -> dict[str, Any]:
         native_devices = self.native_audio_snapshot.get("devices", []) if isinstance(self.native_audio_snapshot, dict) else []
+        capture_backend = self.values.get("audio-capture-backend", "python")
+        if self.native_audio_core.available and time.time() - self.native_audio_health_checked_at > 15.0:
+            self.native_audio_health = self.native_audio_core.health()
+            self.native_audio_health_checked_at = time.time()
+        health = self.native_audio_health if self.native_audio_core.available else {"ok": False}
+        runtime = "native" if capture_backend == "native" and health.get("ok") else "python"
         return {
             "available": self.native_audio_core.available,
             "enumerated": bool(self.native_audio_snapshot),
-            "runtime": "native" if self.native_audio_core.available and self.native_audio_snapshot else "python",
+            "runtime": runtime,
+            "captureBackend": capture_backend,
+            "fallbackEnabled": self.values.get("audio-native-fallback", "1") == "1",
+            "preRollMs": max(0, min(safe_int(self.values.get("audio-pre-roll-ms"), 160), 600)),
+            "health": health,
             "binaryPath": str(self.native_audio_core.binary_path),
             "deviceCount": len(native_devices),
             "lastSnapshot": self.native_audio_snapshot,

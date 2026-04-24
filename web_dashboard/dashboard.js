@@ -193,6 +193,9 @@ const I18N = {
     "platform.eyebrow": "Platform",
     "platform.title": "Audio Core & Updates",
     "platform.updateManifest": "Update Manifest URL",
+    "platform.captureBackend": "Capture Backend",
+    "platform.preRollMs": "Pre-roll ms",
+    "platform.nativeFallback": "Fallback to Python when native capture fails",
     "domain.eyebrow": "Domain Bias",
     "domain.title": "Recognition Bias",
     "domain.preset": "Domain Preset",
@@ -343,6 +346,9 @@ const I18N = {
     "platform.eyebrow": "平台",
     "platform.title": "音频核心与更新",
     "platform.updateManifest": "更新清单地址",
+    "platform.captureBackend": "采集后端",
+    "platform.preRollMs": "预卷毫秒",
+    "platform.nativeFallback": "原生采集失败时回退 Python",
     "domain.eyebrow": "领域偏置",
     "domain.title": "识别偏置",
     "domain.preset": "领域预设",
@@ -522,6 +528,10 @@ const fallbackOptionGroups = {
   "b-subtitle": Object.entries(SUBTITLE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "c-subtitle": Object.entries(SUBTITLE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "voice-clone-language": Object.entries(CLONE_TRAIN_LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
+  "audio-capture-backend": [
+    { value: "python", label: "Python Capture", hint: "Stable fallback path" },
+    { value: "native", label: "Native Capture", hint: "Rust CoreAudio/WASAPI low-latency path" },
+  ],
   "voice-clone-speaker-id": makeCloneOptions(),
   "a-clone-speaker": makeCloneOptions(),
   "b-clone-speaker": makeCloneOptions(),
@@ -541,6 +551,9 @@ const fallbackState = {
     "domain-glossary":
       "Tool Cupboard => Tool Cupboard (TC)\nCounter Raid => Counter Raid\nSulfur => Sulfur\nScrap => Scrap",
     "update-manifest-url": "",
+    "audio-capture-backend": "python",
+    "audio-native-fallback": "1",
+    "audio-pre-roll-ms": "160",
     "voice-clone-speaker-id": "S_ATMtmRu02",
     "voice-clone-sample-path": "",
     "voice-clone-reference-text": "",
@@ -835,6 +848,9 @@ const domainHotWordsInput = document.getElementById("domainHotWordsInput");
 const domainCorrectWordsInput = document.getElementById("domainCorrectWordsInput");
 const domainGlossaryInput = document.getElementById("domainGlossaryInput");
 const updateManifestInput = document.getElementById("updateManifestInput");
+const audioPreRollInput = document.getElementById("audioPreRollInput");
+const audioNativeFallbackInput = document.getElementById("audioNativeFallbackInput");
+const audioCoreStatusNote = document.getElementById("audioCoreStatusNote");
 const voiceCloneSamplePathInput = document.getElementById("voiceCloneSamplePathInput");
 const voiceCloneReferenceInput = document.getElementById("voiceCloneReferenceInput");
 const voiceCloneDemoInput = document.getElementById("voiceCloneDemoInput");
@@ -885,6 +901,7 @@ const latencyRefs = {
 
 const advancedFieldInputs = {
   "update-manifest-url": updateManifestInput,
+  "audio-pre-roll-ms": audioPreRollInput,
   "voice-clone-sample-path": voiceCloneSamplePathInput,
   "voice-clone-reference-text": voiceCloneReferenceInput,
   "voice-clone-demo-text": voiceCloneDemoInput,
@@ -894,7 +911,9 @@ const advancedFieldInputs = {
   "domain-glossary": domainGlossaryInput,
 };
 
-const checkboxInputs = {};
+const checkboxInputs = {
+  "audio-native-fallback": audioNativeFallbackInput,
+};
 const numericFieldInputs = {};
 const transcriptScrollState = new Map();
 CHANNELS.forEach((alias) => {
@@ -1750,15 +1769,22 @@ function localizedVoiceCloneStatus(label) {
 
 function renderPlatformState() {
   const nativeCore = appState.nativeAudioCore || {};
+  const captureBackend = nativeCore.captureBackend || appState.values["audio-capture-backend"] || "python";
+  const captureLabel = captureBackend === "native" ? "Native" : "Python";
   if (nativeCore.available && nativeCore.enumerated) {
-    nativeCoreTag.textContent = t("status.nativeAudio");
-    audioCorePill.textContent = `${t("status.nativeAudio")} / ${nativeCore.deviceCount || 0}`;
+    nativeCoreTag.textContent = `${captureLabel} Audio Core`;
+    audioCorePill.textContent = `${captureLabel} / ${nativeCore.deviceCount || 0}`;
   } else if (nativeCore.available) {
     nativeCoreTag.textContent = t("status.nativeScaffold");
-    audioCorePill.textContent = t("status.nativeScaffold");
+    audioCorePill.textContent = `${captureLabel} / ${t("status.nativeScaffold")}`;
   } else {
     nativeCoreTag.textContent = t("status.pythonAudio");
     audioCorePill.textContent = t("status.pythonAudio");
+  }
+  if (audioCoreStatusNote) {
+    const health = nativeCore.health || {};
+    const healthText = nativeCore.available ? (health.ok ? "healthy" : health.error || "not ready") : "binary missing";
+    audioCoreStatusNote.textContent = `Capture ${captureLabel} / runtime ${nativeCore.runtime || "python"} / pre-roll ${nativeCore.preRollMs || appState.values["audio-pre-roll-ms"] || 0}ms / fallback ${nativeCore.fallbackEnabled ? "on" : "off"} / ${healthText}`;
   }
 
   const updater = appState.updater || {};
@@ -2115,7 +2141,10 @@ function renderRouteCard() {
     astRefs.path.title = astRefs.path.textContent;
     astRefs.astLatency.textContent = appState.runtime?.metrics?.ast || "--";
     astRefs.ttsLatency.textContent = appState.runtime?.metrics?.tts || "--";
-    astRefs.running.textContent = appState.runtime?.running ? (uiLanguage() === "zh" ? "已启动" : "Running") : (uiLanguage() === "zh" ? "待机" : "Standby");
+    const nativeCore = appState.nativeAudioCore || {};
+    const backend = nativeCore.captureBackend || appState.values["audio-capture-backend"] || "python";
+    const runtimeText = appState.runtime?.running ? (uiLanguage() === "zh" ? "已启动" : "Running") : (uiLanguage() === "zh" ? "待机" : "Standby");
+    astRefs.running.textContent = `${runtimeText} / ${backend}`;
   }
 }
 

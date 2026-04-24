@@ -29,6 +29,11 @@
     "dns_servers": [],
     "dns_hosts": []
   },
+  "audio_core": {
+    "capture_backend": "python",
+    "native_capture_fallback": true,
+    "pre_roll_ms": 160
+  },
   "channels": {
     "outbound": {
       "enabled": true,

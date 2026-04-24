@@ -20,6 +20,7 @@ import soundcard as sc
 import websockets
 
 from custom_dns import dns_override, target_hosts_for_url
+from audio_core_bridge import NativeAudioCoreBridge, NativeCaptureSession
 from paths import get_app_root
 from python_protogen.common.events_pb2 import Type
 from python_protogen.products.understanding.ast.ast_service_pb2 import TranslateRequest, TranslateResponse
@@ -231,6 +232,9 @@ class ChannelSettings:
     local_tts_voice: str = ""
     local_tts_cluster: str = "volcano_icl"
     local_tts_speed: float = 1.0
+    capture_backend: str = "python"
+    native_capture_fallback: bool = True
+    pre_roll_ms: int = SPEECH_PREROLL_MS
 
 
 @dataclass(**DATACLASS_SLOTS)
@@ -270,6 +274,9 @@ class ChannelStats:
     reconnect_attempts: int = 0
     reconnect_successes: int = 0
     last_disconnect_reason: str = ""
+    capture_backend: str = "python"
+    native_capture_active: bool = False
+    native_capture_fallbacks: int = 0
 
     def snapshot(self) -> dict:
         now = time.time()
@@ -311,6 +318,9 @@ class ChannelStats:
             "reconnect_attempts": self.reconnect_attempts,
             "reconnect_successes": self.reconnect_successes,
             "last_disconnect_reason": self.last_disconnect_reason,
+            "capture_backend": self.capture_backend,
+            "native_capture_active": self.native_capture_active,
+            "native_capture_fallbacks": self.native_capture_fallbacks,
         }
 
 
@@ -375,6 +385,13 @@ def samples_to_dbfs(samples: np.ndarray) -> float:
     if rms <= 1e-6:
         return -96.0
     return round(20.0 * np.log10(max(rms, 1e-6)), 1)
+
+
+def safe_float(value: object, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def get_preset(profile_key: str) -> PerformancePreset:
@@ -548,13 +565,15 @@ class TranslationChannel:
         self._last_server_audio_at = 0.0
         self._silence_keepalive_chunk = b"\x00\x00" * self._input_block_frames
         self._speech_preroll_chunks: deque[bytes] = deque(
-            maxlen=max(1, (SPEECH_PREROLL_MS + max(self.settings.chunk_ms, 1) - 1) // max(self.settings.chunk_ms, 1))
+            maxlen=max(1, (self.settings.pre_roll_ms + max(self.settings.chunk_ms, 1) - 1) // max(self.settings.chunk_ms, 1))
         )
         self._post_speech_silence_until = 0.0
         self._speech_was_active = False
         self._log_lock = threading.Lock()
         self._reconnect_attempts = 0
         self._local_tts = None
+        self._native_capture: NativeCaptureSession | None = None
+        self._native_core = NativeAudioCoreBridge()
         if self.settings.use_local_tts and self.settings.local_tts_voice.strip():
             self._local_tts = CloneTTSSynthesizer(
                 self.credentials.app_key,
@@ -565,6 +584,7 @@ class TranslationChannel:
             )
 
         self.stats = ChannelStats(channel_id=self.settings.channel_id)
+        self.stats.capture_backend = self.settings.capture_backend
 
     @property
     def is_running(self) -> bool:
@@ -584,6 +604,7 @@ class TranslationChannel:
         self._reconnect_attempts = 0
         request_timer_resolution()
         self.stats = ChannelStats(channel_id=self.settings.channel_id, session_state="starting", started_at=time.time())
+        self.stats.capture_backend = self.settings.capture_backend
         self._worker = threading.Thread(target=self._thread_main, name=f"ast-{self.settings.channel_id}", daemon=True)
         self._worker.start()
         self._emit("status", "Engine booting")
@@ -591,6 +612,9 @@ class TranslationChannel:
 
     def stop(self) -> None:
         self._stop_requested.set()
+        if self._native_capture is not None:
+            self._native_capture.close()
+            self._native_capture = None
         self._enqueue(self._audio_queue, None)
         self._enqueue(self._playback_queue, None)
         self._enqueue(self._local_tts_queue, None)
@@ -730,7 +754,85 @@ class TranslationChannel:
             release_timer_resolution()
 
     def _capture_audio(self) -> None:
+        if self.settings.capture_backend == "native":
+            try:
+                self._capture_audio_native()
+                return
+            except Exception as exc:  # pragma: no cover - hardware dependent
+                self.stats.last_error = str(exc)
+                self.stats.native_capture_active = False
+                if not self.settings.native_capture_fallback or self._stop_requested.is_set():
+                    self._emit("error", f"Native capture failed: {exc}")
+                    self.stop()
+                    return
+                self.stats.native_capture_fallbacks += 1
+                self.stats.capture_backend = "python"
+                self._emit("status", f"Native capture failed, falling back to Python: {exc}")
+                self._maybe_emit_stats(force=True)
+        self._capture_audio_python()
+
+    def _capture_audio_native(self) -> None:
         boost_current_thread_priority()
+        config = {
+            "channel": self.settings.channel_id,
+            "device_id": self.settings.capture_device_id,
+            "sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
+            "chunk_ms": self.settings.chunk_ms,
+            "noise_gate_db": self.settings.noise_gate_db,
+            "silence_hold_ms": self.settings.silence_hold_ms,
+            "pre_roll_ms": self.settings.pre_roll_ms,
+            "input_gain": self.settings.input_gain,
+            "enable_agc": self.settings.enable_agc,
+            "agc_target_dbfs": self.settings.agc_target_dbfs,
+            "max_agc_gain": self.settings.max_agc_gain,
+        }
+        self._native_capture = self._native_core.start_capture(config)
+        self.stats.capture_backend = "native"
+        self.stats.native_capture_active = True
+        self._emit("status", "Native input capture active")
+        try:
+            while not self._stop_requested.is_set():
+                event = self._native_capture.read_event(timeout=0.2)
+                if not event:
+                    continue
+                event_name = event.get("event")
+                if event_name == "audio_chunk":
+                    pcm_chunk = event.get("pcm16") or b""
+                    if not pcm_chunk:
+                        continue
+                    now = time.time()
+                    level_db = safe_float(event.get("level_db"), -96.0)
+                    speech_active = bool(event.get("speech"))
+                    self.stats.audio_level_db = level_db
+                    self.stats.speech_active = speech_active
+                    self.stats.dropped_silent_chunks = int(event.get("dropped_silent_chunks") or 0)
+                    speech_latency_threshold_db = max(self.settings.noise_gate_db + 4.0, -42.0)
+                    if speech_active and level_db >= speech_latency_threshold_db and now - self._last_speech_chunk_at > 0.85:
+                        self._begin_latency_window()
+                    if speech_active and level_db >= speech_latency_threshold_db:
+                        self._last_speech_chunk_at = now
+                    self._enqueue(self._audio_queue, pcm_chunk)
+                    self._last_server_audio_at = now
+                    self.stats.input_queue_depth = self._audio_queue.qsize()
+                    self._maybe_emit_stats()
+                elif event_name == "metrics":
+                    self.stats.audio_level_db = safe_float(event.get("level_db"), -96.0)
+                    self.stats.speech_active = bool(event.get("speech"))
+                    self.stats.dropped_silent_chunks = int(event.get("dropped_silent_chunks") or 0)
+                    self.stats.input_queue_depth = self._audio_queue.qsize()
+                    self._maybe_emit_stats()
+                elif event_name == "error":
+                    raise RuntimeError(str(event.get("message") or "Native capture error"))
+        finally:
+            if self._native_capture is not None:
+                self._native_capture.close()
+                self._native_capture = None
+            self.stats.native_capture_active = False
+
+    def _capture_audio_python(self) -> None:
+        boost_current_thread_priority()
+        self.stats.capture_backend = "python"
+        self.stats.native_capture_active = False
         microphone = self.catalog.get_microphone(self.settings.capture_device_id)
         if microphone is None:
             self.stats.last_error = "Input device not found"

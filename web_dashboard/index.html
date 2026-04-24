@@ -575,10 +575,28 @@
             <span class="summary-pill" id="audioCorePill">Python Audio</span>
           </div>
 
+          <div class="channel-device-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="platform.captureBackend">Capture Backend</span>
+              <div class="custom-select" data-select="audio-capture-backend"></div>
+            </div>
+            <label class="credential-field">
+              <span class="field-label" data-i18n="platform.preRollMs">Pre-roll ms</span>
+              <input class="credential-input" id="audioPreRollInput" type="number" min="0" max="600" step="10" value="160">
+            </label>
+          </div>
+
+          <label class="channel-mini-toggle">
+            <input id="audioNativeFallbackInput" type="checkbox">
+            <span data-i18n="platform.nativeFallback">Fallback to Python when native capture fails</span>
+          </label>
+
           <label class="credential-field">
             <span class="field-label" data-i18n="platform.updateManifest">Update Manifest URL</span>
             <input class="credential-input" id="updateManifestInput" type="text" value="">
           </label>
+
+          <div class="drawer-note" id="audioCoreStatusNote"></div>
 
           <div class="drawer-inline">
             <button class="action-button secondary" id="checkUpdateButton" type="button" data-i18n="button.checkUpdates">Check Updates</button>
