@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.downloads/
+.tmp_pkgs/
+config.local.json
+output/
+build/
+dist/
+*.log

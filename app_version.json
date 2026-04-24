@@ -1,0 +1,6 @@
+{
+  "version": "0.4.0",
+  "channel": "alpha",
+  "manifest_url": "",
+  "notes": "Qt/Web dashboard with bilingual UI toggle, AGC/denoise tuning, voice clone workflow, updater hooks, and native audio core scaffold."
+}

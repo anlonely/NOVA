@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOVA INTERP</title>
+  <link rel="stylesheet" href="./dashboard.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <div class="dashboard-app" id="app">
+    <div class="ambient-grid" aria-hidden="true"></div>
+
+    <header class="app-header">
+      <div class="brand-stack">
+        <div class="brand-line">
+          <h1>NOVA INTERP</h1>
+          <div class="status-tags">
+            <span class="tag tag-blue" data-i18n="tag.dualChannel">Dual Channel</span>
+            <span class="tag tag-green" data-i18n="tag.lowLatency">Low Latency</span>
+            <span class="tag tag-muted" id="engineStateTag">Engine Ready</span>
+            <span class="tag tag-muted" id="domainTag">Rust Raid</span>
+            <span class="tag tag-muted" id="nativeCoreTag">Python Audio Core</span>
+          </div>
+        </div>
+        <p class="brand-copy" id="brandCopy">
+          Professional bilingual interpreting console for Discord, meetings, and live sessions.
+        </p>
+      </div>
+
+      <div class="header-actions">
+        <div class="scenario-block">
+          <div class="custom-select compact" data-select="scene"></div>
+        </div>
+
+        <button class="action-button secondary compact-text-button" id="layoutToggleButton" type="button">字幕模式</button>
+
+        <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.24 1.76L14 10h6V4z"></path>
+          </svg>
+        </button>
+
+        <button class="action-button secondary compact-text-button" id="languageToggleButton" type="button">EN</button>
+
+        <button class="action-button secondary compact-text-button" id="biasButton" type="button" data-i18n="button.bias">Bias</button>
+
+        <button class="action-button secondary compact-text-button" id="latencyButton" type="button" data-i18n="button.latency">Latency</button>
+
+        <button class="icon-button" id="settingsButton" type="button" aria-label="Open settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19.14 12.94a7.9 7.9 0 0 0 .05-.94 7.9 7.9 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.63l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.6 7.6 0 0 0-1.63-.94l-.36-2.54A.48.48 0 0 0 13.9 2h-3.8a.48.48 0 0 0-.49.41l-.36 2.54a7.6 7.6 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.47a.5.5 0 0 0 .12.63l2.03 1.58a7.9 7.9 0 0 0-.05.94c0 .32.02.63.05.94L2.83 14.14a.5.5 0 0 0-.12.63l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.38 1.05.69 1.63.94l.36 2.54a.48.48 0 0 0 .49.41h3.8a.48.48 0 0 0 .49-.41l.36-2.54c.58-.25 1.13-.56 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.63zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"></path>
+          </svg>
+        </button>
+
+        <button class="action-button primary" id="startButton" type="button" data-i18n="button.start">Start</button>
+        <button class="action-button danger" id="stopButton" type="button" disabled data-i18n="button.stop">Stop</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="top-controls" id="topControls">
+        <div class="controls-lock">
+          <span class="lock-pill" data-i18n="runtime.running">Running</span>
+          <span data-i18n="runtime.locked">Top configuration is locked while the engine is active.</span>
+        </div>
+
+        <article class="card channel-card channel-a control-card" data-channel="a" id="channelCardA">
+          <div class="card-header">
+            <div>
+              <p class="eyebrow" data-i18n="channel.aEyebrow">Channel A</p>
+              <h2 id="channelATitle">Speaker A</h2>
+              <p class="card-copy" id="channelACopy">Outbound lane for your microphone, translated for the remote side.</p>
+            </div>
+
+            <div class="channel-header-meta">
+              <div class="visualizer active" data-visualizer="a" aria-hidden="true">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+              </div>
+              <span class="status-pill accent-blue" data-state-pill="a">Ready</span>
+            </div>
+          </div>
+
+          <div class="channel-top-band">
+            <div class="channel-toggle-strip">
+              <label class="channel-mini-toggle">
+                <input id="aEnabledInput" type="checkbox">
+                <span data-i18n="toggle.channel">Channel</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="aInputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.input">Input</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="aOutputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.output">Output</span>
+              </label>
+            </div>
+
+            <div class="channel-device-grid">
+              <div class="field">
+                <span class="field-label" data-i18n="field.inputDevice">Input Device</span>
+                <div class="custom-select" data-select="a-input"></div>
+              </div>
+
+              <div class="field">
+                <span class="field-label" data-i18n="field.outputDevice">Output Device</span>
+                <div class="custom-select" data-select="a-output"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-config-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="field.sourceLanguage">Source Language</span>
+              <div class="custom-select compact" data-select="a-source"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.targetLanguage">Target Language</span>
+              <div class="custom-select compact" data-select="a-target"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.outputVoice">Output Voice</span>
+              <div class="custom-select compact" data-select="a-speaker"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.performance">Performance</span>
+              <div class="custom-select compact" data-select="a-profile"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.transcriptMode">Transcript Mode</span>
+              <div class="custom-select compact" data-select="a-subtitle"></div>
+            </div>
+          </div>
+
+          <div class="channel-footer">
+            <div class="route-note" id="aRouteNote"></div>
+            <div class="channel-inline-actions">
+              <div class="diag-chip-group">
+                <span class="diag-chip accent-blue" id="aLatencyChip">72 ms audio</span>
+                <span class="diag-chip" id="aQueueChip">Queue 02</span>
+              </div>
+              <button class="action-button secondary channel-tools-button" id="aChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="card route-card control-card" id="routeCard">
+          <div class="card-header route-header">
+            <div>
+              <p class="eyebrow" data-i18n="route.eyebrow">Unified Route</p>
+              <h2 data-i18n="route.title">Route &amp; Diagnostics</h2>
+              <p class="card-copy" id="routeCopy">Symmetric live view for both translation lanes with shared AST core.</p>
+            </div>
+
+            <div class="route-summary">
+              <span class="summary-pill" id="summaryA">A Ready</span>
+              <span class="summary-pill" id="summaryB">B Ready</span>
+              <span class="summary-pill" id="summaryC">C Ready</span>
+              <span class="summary-pill" id="summaryAst">AST Ready</span>
+            </div>
+          </div>
+
+          <div class="route-network">
+            <svg class="route-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="routeBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.15"></stop>
+                  <stop offset="45%" stop-color="#3B82F6" stop-opacity="0.95"></stop>
+                  <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.15"></stop>
+                </linearGradient>
+                <linearGradient id="routeGreen" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#10B981" stop-opacity="0.15"></stop>
+                  <stop offset="45%" stop-color="#10B981" stop-opacity="0.95"></stop>
+                  <stop offset="100%" stop-color="#10B981" stop-opacity="0.15"></stop>
+                </linearGradient>
+                <linearGradient id="routeAmber" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.15"></stop>
+                  <stop offset="45%" stop-color="#F59E0B" stop-opacity="0.95"></stop>
+                  <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.15"></stop>
+                </linearGradient>
+              </defs>
+              <line x1="18" y1="18" x2="42" y2="18" class="route-line route-line-blue"></line>
+              <line x1="58" y1="18" x2="82" y2="18" class="route-line route-line-blue"></line>
+              <line x1="18" y1="50" x2="42" y2="50" class="route-line route-line-green"></line>
+              <line x1="58" y1="50" x2="82" y2="50" class="route-line route-line-green"></line>
+              <line x1="18" y1="82" x2="42" y2="82" class="route-line route-line-amber"></line>
+              <line x1="58" y1="82" x2="82" y2="82" class="route-line route-line-amber"></line>
+            </svg>
+
+            <div class="route-node-card accent-blue active node-input-a">
+              <span class="node-label" data-i18n="route.inputA">Input A</span>
+              <strong class="node-value" id="routeInputA"></strong>
+            </div>
+
+            <div class="route-node-card accent-blue active node-output-a">
+              <span class="node-label" data-i18n="route.outputA">Output A</span>
+              <strong class="node-value" id="routeOutputA"></strong>
+            </div>
+
+            <div class="ast-core">
+              <div class="ast-ring"></div>
+              <div class="ast-pill">AST</div>
+              <p id="astCoreCopy">Volc Engine S2S Stream</p>
+            </div>
+
+            <div class="route-node-card accent-green active node-output-b">
+              <span class="node-label" data-i18n="route.outputB">Output B</span>
+              <strong class="node-value" id="routeOutputB"></strong>
+            </div>
+
+            <div class="route-node-card accent-green active node-input-b">
+              <span class="node-label" data-i18n="route.inputB">Input B</span>
+              <strong class="node-value" id="routeInputB"></strong>
+            </div>
+
+            <div class="route-node-card accent-amber active node-input-c">
+              <span class="node-label" data-i18n="route.inputC">Input C</span>
+              <strong class="node-value" id="routeInputC"></strong>
+            </div>
+
+            <div class="route-node-card accent-amber active node-output-c">
+              <span class="node-label" data-i18n="route.outputC">Output C</span>
+              <strong class="node-value" id="routeOutputC"></strong>
+            </div>
+          </div>
+
+          <div class="route-metrics">
+            <div class="metric-chip">
+              <span data-i18n="metric.inputA">Input A</span>
+              <strong id="metricInputA">-32 dB</strong>
+            </div>
+            <div class="metric-chip">
+              <span>AST</span>
+              <strong id="metricAst">81 ms</strong>
+            </div>
+            <div class="metric-chip">
+              <span data-i18n="metric.inputB">Input B</span>
+              <strong id="metricInputB">-28 dB</strong>
+            </div>
+            <div class="metric-chip">
+              <span data-i18n="metric.inputC">Input C</span>
+              <strong id="metricInputC">-41 dB</strong>
+            </div>
+            <div class="metric-chip">
+              <span data-i18n="metric.tts">TTS</span>
+              <strong id="metricTts">124 ms</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card channel-card channel-b control-card" data-channel="b" id="channelCardB">
+          <div class="card-header">
+            <div>
+              <p class="eyebrow" data-i18n="channel.bEyebrow">Channel B</p>
+              <h2 id="channelBTitle">Speaker B</h2>
+              <p class="card-copy" id="channelBCopy">Inbound lane for remote audio, translated back for your monitoring bus.</p>
+            </div>
+
+            <div class="channel-header-meta">
+              <div class="visualizer active" data-visualizer="b" aria-hidden="true">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+              </div>
+              <span class="status-pill accent-green" data-state-pill="b">Ready</span>
+            </div>
+          </div>
+
+          <div class="channel-top-band">
+            <div class="channel-toggle-strip">
+              <label class="channel-mini-toggle">
+                <input id="bEnabledInput" type="checkbox">
+                <span data-i18n="toggle.channel">Channel</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="bInputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.input">Input</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="bOutputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.output">Output</span>
+              </label>
+            </div>
+
+            <div class="channel-device-grid">
+              <div class="field">
+                <span class="field-label" data-i18n="field.inputDevice">Input Device</span>
+                <div class="custom-select" data-select="b-input"></div>
+              </div>
+
+              <div class="field">
+                <span class="field-label" data-i18n="field.outputDevice">Output Device</span>
+                <div class="custom-select" data-select="b-output"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-config-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="field.sourceLanguage">Source Language</span>
+              <div class="custom-select compact" data-select="b-source"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.targetLanguage">Target Language</span>
+              <div class="custom-select compact" data-select="b-target"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.outputVoice">Output Voice</span>
+              <div class="custom-select compact" data-select="b-speaker"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.performance">Performance</span>
+              <div class="custom-select compact" data-select="b-profile"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.transcriptMode">Transcript Mode</span>
+              <div class="custom-select compact" data-select="b-subtitle"></div>
+            </div>
+          </div>
+
+          <div class="channel-footer">
+            <div class="route-note" id="bRouteNote"></div>
+            <div class="channel-inline-actions">
+              <div class="diag-chip-group">
+                <span class="diag-chip accent-green" id="bLatencyChip">68 ms audio</span>
+                <span class="diag-chip" id="bQueueChip">Queue 01</span>
+              </div>
+              <button class="action-button secondary channel-tools-button" id="bChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="card channel-card channel-c control-card" data-channel="c" id="channelCardC">
+          <div class="card-header">
+            <div>
+              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
+              <h2 id="channelCTitle">Speaker C</h2>
+              <p class="card-copy" id="channelCCopy">Inbound lane for game voice audio, translated for your local monitoring without hijacking your game sound output.</p>
+            </div>
+
+            <div class="channel-header-meta">
+              <div class="visualizer active" data-visualizer="c" aria-hidden="true">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+              </div>
+              <span class="status-pill accent-amber" data-state-pill="c">Ready</span>
+            </div>
+          </div>
+
+          <div class="channel-top-band">
+            <div class="channel-toggle-strip">
+              <label class="channel-mini-toggle">
+                <input id="cEnabledInput" type="checkbox">
+                <span data-i18n="toggle.channel">Channel</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="cInputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.input">Input</span>
+              </label>
+              <label class="channel-mini-toggle">
+                <input id="cOutputEnabledInput" type="checkbox">
+                <span data-i18n="toggle.output">Output</span>
+              </label>
+            </div>
+
+            <div class="channel-device-grid">
+              <div class="field">
+                <span class="field-label" data-i18n="field.inputDevice">Input Device</span>
+                <div class="custom-select" data-select="c-input"></div>
+              </div>
+
+              <div class="field">
+                <span class="field-label" data-i18n="field.outputDevice">Output Device</span>
+                <div class="custom-select" data-select="c-output"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="channel-config-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="field.sourceLanguage">Source Language</span>
+              <div class="custom-select compact" data-select="c-source"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.targetLanguage">Target Language</span>
+              <div class="custom-select compact" data-select="c-target"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.outputVoice">Output Voice</span>
+              <div class="custom-select compact" data-select="c-speaker"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.performance">Performance</span>
+              <div class="custom-select compact" data-select="c-profile"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="field.transcriptMode">Transcript Mode</span>
+              <div class="custom-select compact" data-select="c-subtitle"></div>
+            </div>
+          </div>
+
+          <div class="channel-footer">
+            <div class="route-note" id="cRouteNote"></div>
+            <div class="channel-inline-actions">
+              <div class="diag-chip-group">
+                <span class="diag-chip accent-amber" id="cLatencyChip">94 ms audio</span>
+                <span class="diag-chip" id="cQueueChip">Queue 00</span>
+              </div>
+              <button class="action-button secondary channel-tools-button" id="cChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="transcript-dock">
+        <div class="dock-header">
+          <div>
+            <p class="eyebrow" data-i18n="dock.eyebrow">Live Translation</p>
+            <h2 data-i18n="dock.title">Dual-Pane Transcript Dock</h2>
+            <p class="card-copy" data-i18n="dock.copy">Smooth auto-scroll, source text dimmed, translated text emphasized for continuous reading.</p>
+          </div>
+
+          <div class="dock-summary">
+            <span class="summary-pill active" data-i18n="dock.autoScroll">Auto Scroll</span>
+            <span class="summary-pill" data-i18n="dock.bilingual">Bilingual</span>
+            <span class="summary-pill">60vh Dock</span>
+          </div>
+        </div>
+
+        <div class="transcript-grid">
+          <section class="transcript-pane pane-a">
+            <div class="pane-header">
+              <div>
+                <p class="eyebrow" data-i18n="pane.aEyebrow">Channel A Feed</p>
+                <h3 id="paneATitle">Speaker A to Remote</h3>
+              </div>
+              <span class="status-pill accent-blue" id="paneAStatus">Idle</span>
+            </div>
+            <div class="live-preview" id="livePreviewA">
+              <div class="entry-source" id="livePreviewASource"></div>
+              <div class="entry-target" id="livePreviewATarget"></div>
+            </div>
+            <div class="transcript-scroll" id="transcriptA"></div>
+          </section>
+
+          <section class="transcript-pane pane-b">
+            <div class="pane-header">
+              <div>
+                <p class="eyebrow" data-i18n="pane.bEyebrow">Channel B Feed</p>
+                <h3 id="paneBTitle">Remote to Speaker A</h3>
+              </div>
+              <span class="status-pill accent-green" id="paneBStatus">Idle</span>
+            </div>
+            <div class="live-preview" id="livePreviewB">
+              <div class="entry-source" id="livePreviewBSource"></div>
+              <div class="entry-target" id="livePreviewBTarget"></div>
+            </div>
+            <div class="transcript-scroll" id="transcriptB"></div>
+          </section>
+
+          <section class="transcript-pane pane-c">
+            <div class="pane-header">
+              <div>
+                <p class="eyebrow" data-i18n="pane.cEyebrow">Channel C Feed</p>
+                <h3 id="paneCTitle">Game Voice to You</h3>
+              </div>
+              <span class="status-pill accent-amber" id="paneCStatus">Idle</span>
+            </div>
+            <div class="live-preview" id="livePreviewC">
+              <div class="entry-source" id="livePreviewCSource"></div>
+              <div class="entry-target" id="livePreviewCTarget"></div>
+            </div>
+            <div class="transcript-scroll" id="transcriptC"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal-backdrop" id="modalBackdrop" hidden></div>
+
+    <aside class="credentials-drawer system-drawer" id="credentialsDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow" data-i18n="drawer.eyebrow">Engine Settings</p>
+          <h2 data-i18n="drawer.title">Engine Credentials</h2>
+        </div>
+        <button class="icon-button ghost" id="closeDrawerButton" type="button" aria-label="Close settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="platform.eyebrow">Platform</p>
+              <h3 data-i18n="platform.title">Audio Core &amp; Updates</h3>
+            </div>
+            <span class="summary-pill" id="audioCorePill">Python Audio</span>
+          </div>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="platform.updateManifest">Update Manifest URL</span>
+            <input class="credential-input" id="updateManifestInput" type="text" value="">
+          </label>
+
+          <div class="drawer-inline">
+            <button class="action-button secondary" id="checkUpdateButton" type="button" data-i18n="button.checkUpdates">Check Updates</button>
+            <button class="action-button secondary" id="downloadUpdateButton" type="button" data-i18n="button.downloadUpdate">Download Update</button>
+          </div>
+
+          <div class="drawer-note" id="updateStatusNote"></div>
+        </section>
+
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="credentials.eyebrow">Credentials</p>
+              <h3 data-i18n="credentials.title">Engine Access</h3>
+            </div>
+          </div>
+
+          <label class="credential-field">
+            <span class="field-label">App ID</span>
+            <input class="credential-input" id="credentialAppId" type="text" value="">
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="credentials.accessToken">Access Token</span>
+            <input class="credential-input" id="credentialAccessToken" type="password" value="">
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="credentials.secretKey">Secret Key</span>
+            <input class="credential-input" id="credentialSecretKey" type="password" value="">
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="credentials.resourceId">Resource ID</span>
+            <input class="credential-input" id="credentialResourceId" type="text" value="volc.service_type.10053">
+          </label>
+
+          <div class="drawer-note" data-i18n="credentials.note">
+            Virtual sound cards, loopback inputs, and hardware devices are all refreshed from the local machine. Install a new cable, click refresh, and it will appear in the dropdowns.
+          </div>
+        </section>
+
+        <div class="drawer-actions">
+          <button class="action-button" id="saveConfigButton" type="button" data-i18n="button.saveConfig">Save Config</button>
+          <button class="action-button" id="exportSessionButton" type="button" data-i18n="button.exportSession">Export Session</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside class="credentials-drawer bias-drawer" id="biasDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow" data-i18n="domain.eyebrow">Domain Bias</p>
+          <h2 data-i18n="domain.title">Recognition Bias</h2>
+        </div>
+        <button class="icon-button ghost" id="closeBiasDrawerButton" type="button" aria-label="Close bias settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="domain.eyebrow">Domain Bias</p>
+              <h3 data-i18n="domain.title">Recognition Bias</h3>
+            </div>
+            <span class="summary-pill" id="virtualDeviceHint">Virtual-ready</span>
+          </div>
+
+          <div class="field">
+            <span class="field-label" data-i18n="domain.preset">Domain Preset</span>
+            <div class="custom-select compact" data-select="domain-preset"></div>
+          </div>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="domain.context">Context Bias</span>
+            <textarea class="drawer-textarea" id="domainContextInput" rows="4"></textarea>
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="domain.hotWords">Hot Words</span>
+            <textarea class="drawer-textarea" id="domainHotWordsInput" rows="4"></textarea>
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="domain.correctWords">Correct Words</span>
+            <textarea class="drawer-textarea" id="domainCorrectWordsInput" rows="5" placeholder="wrong => right"></textarea>
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="domain.glossary">Glossary</span>
+            <textarea class="drawer-textarea" id="domainGlossaryInput" rows="5" placeholder="source => target"></textarea>
+          </label>
+        </section>
+      </div>
+    </aside>
+
+    <aside class="credentials-drawer latency-drawer" id="latencyDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow" data-i18n="latency.eyebrow">Latency</p>
+          <h2 data-i18n="latency.title">Latency Measurement</h2>
+          <p class="brand-copy" data-i18n="latency.copy">Measure first audio, recognition, translation, and TTS generation latency from the current session.</p>
+        </div>
+        <button class="icon-button ghost" id="closeLatencyDrawerButton" type="button" aria-label="Close latency panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="latency.summaryEyebrow">Session Summary</p>
+              <h3 data-i18n="latency.summaryTitle">Current Summary</h3>
+            </div>
+            <span class="summary-pill" id="latencySummaryScope">Active</span>
+          </div>
+
+          <div class="latency-summary-grid">
+            <article class="latency-stat-card">
+              <span class="field-label" data-i18n="latency.firstAudio">First Audio</span>
+              <strong id="latencySummaryFirstAudio">--</strong>
+            </article>
+            <article class="latency-stat-card">
+              <span class="field-label" data-i18n="latency.recognition">Speech Recognition</span>
+              <strong id="latencySummaryRecognition">--</strong>
+            </article>
+            <article class="latency-stat-card">
+              <span class="field-label" data-i18n="latency.translation">Translation Processing</span>
+              <strong id="latencySummaryTranslation">--</strong>
+            </article>
+            <article class="latency-stat-card">
+              <span class="field-label" data-i18n="latency.tts">TTS Generation</span>
+              <strong id="latencySummaryTts">--</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="latency.channelEyebrow">Per Channel</p>
+              <h3 data-i18n="latency.channelTitle">Channel Breakdown</h3>
+            </div>
+          </div>
+
+          <div class="latency-channel-list">
+            <article class="latency-channel-card accent-blue" id="latencyCardA">
+              <div class="latency-channel-head">
+                <div>
+                  <p class="eyebrow" data-i18n="channel.aEyebrow">Channel A</p>
+                  <h3 id="latencyTitleA">Channel A</h3>
+                </div>
+                <span class="status-pill accent-blue" id="latencyStatusA">Idle</span>
+              </div>
+              <div class="latency-stat-grid">
+                <div class="latency-stat-row"><span data-i18n="latency.firstAudio">First Audio</span><strong id="latencyAFirstAudio">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.recognition">Speech Recognition</span><strong id="latencyARecognition">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.translation">Translation Processing</span><strong id="latencyATranslation">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.tts">TTS Generation</span><strong id="latencyATts">--</strong></div>
+              </div>
+            </article>
+
+            <article class="latency-channel-card accent-green" id="latencyCardB">
+              <div class="latency-channel-head">
+                <div>
+                  <p class="eyebrow" data-i18n="channel.bEyebrow">Channel B</p>
+                  <h3 id="latencyTitleB">Channel B</h3>
+                </div>
+                <span class="status-pill accent-green" id="latencyStatusB">Idle</span>
+              </div>
+              <div class="latency-stat-grid">
+                <div class="latency-stat-row"><span data-i18n="latency.firstAudio">First Audio</span><strong id="latencyBFirstAudio">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.recognition">Speech Recognition</span><strong id="latencyBRecognition">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.translation">Translation Processing</span><strong id="latencyBTranslation">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.tts">TTS Generation</span><strong id="latencyBTts">--</strong></div>
+              </div>
+            </article>
+
+            <article class="latency-channel-card accent-amber" id="latencyCardC">
+              <div class="latency-channel-head">
+                <div>
+                  <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
+                  <h3 id="latencyTitleC">Channel C</h3>
+                </div>
+                <span class="status-pill accent-amber" id="latencyStatusC">Idle</span>
+              </div>
+              <div class="latency-stat-grid">
+                <div class="latency-stat-row"><span data-i18n="latency.firstAudio">First Audio</span><strong id="latencyCFirstAudio">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.recognition">Speech Recognition</span><strong id="latencyCRecognition">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.translation">Translation Processing</span><strong id="latencyCTranslation">--</strong></div>
+                <div class="latency-stat-row"><span data-i18n="latency.tts">TTS Generation</span><strong id="latencyCTts">--</strong></div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <aside class="credentials-drawer channel-drawer" id="channelDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow" id="channelDrawerEyebrow">Channel A</p>
+          <h2 id="channelDrawerTitle">Channel A Clone &amp; Tuning</h2>
+          <p class="brand-copy" id="channelDrawerCopy">Open channel-specific voice clone and low-latency tuning.</p>
+        </div>
+        <button class="icon-button ghost" id="closeChannelDrawerButton" type="button" aria-label="Close channel tools">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="clone.eyebrow">Voice Clone</p>
+              <h3 data-i18n="clone.title">Voice Clone V3</h3>
+            </div>
+          </div>
+
+          <div class="advanced-grid channel-scope-grid">
+            <div class="advanced-card channel-detail-panel" data-channel-panel="a">
+              <p class="eyebrow" data-i18n="channel.aEyebrow">Channel A</p>
+
+              <div class="drawer-inline">
+                <button class="action-button secondary compact-text-button" id="aPreviewVoiceButton" type="button" data-i18n="button.previewVoice">Preview</button>
+                <span class="drawer-note inline-note" id="aPreviewVoiceNote"></span>
+              </div>
+
+              <label class="toggle-row">
+                <input id="aCloneEnabledInput" type="checkbox">
+                <span data-i18n="advanced.useClone">Use Cloned Voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.cloneSpeaker">Clone Speaker ID</span>
+                <div class="custom-select compact" data-select="a-clone-speaker"></div>
+              </div>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.cloneSpeed">Clone Speed</span>
+                <input class="credential-input" id="aCloneSpeedInput" type="number" min="0.6" max="1.8" step="0.05">
+              </label>
+            </div>
+
+            <div class="advanced-card channel-detail-panel" data-channel-panel="b">
+              <p class="eyebrow" data-i18n="channel.bEyebrow">Channel B</p>
+
+              <div class="drawer-inline">
+                <button class="action-button secondary compact-text-button" id="bPreviewVoiceButton" type="button" data-i18n="button.previewVoice">Preview</button>
+                <span class="drawer-note inline-note" id="bPreviewVoiceNote"></span>
+              </div>
+
+              <label class="toggle-row">
+                <input id="bCloneEnabledInput" type="checkbox">
+                <span data-i18n="advanced.useClone">Use Cloned Voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.cloneSpeaker">Clone Speaker ID</span>
+                <div class="custom-select compact" data-select="b-clone-speaker"></div>
+              </div>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.cloneSpeed">Clone Speed</span>
+                <input class="credential-input" id="bCloneSpeedInput" type="number" min="0.6" max="1.8" step="0.05">
+              </label>
+            </div>
+
+            <div class="advanced-card channel-detail-panel" data-channel-panel="c">
+              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
+
+              <div class="drawer-inline">
+                <button class="action-button secondary compact-text-button" id="cPreviewVoiceButton" type="button" data-i18n="button.previewVoice">Preview</button>
+                <span class="drawer-note inline-note" id="cPreviewVoiceNote"></span>
+              </div>
+
+              <label class="toggle-row">
+                <input id="cCloneEnabledInput" type="checkbox">
+                <span data-i18n="advanced.useClone">Use Cloned Voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.cloneSpeaker">Clone Speaker ID</span>
+                <div class="custom-select compact" data-select="c-clone-speaker"></div>
+              </div>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.cloneSpeed">Clone Speed</span>
+                <input class="credential-input" id="cCloneSpeedInput" type="number" min="0.6" max="1.8" step="0.05">
+              </label>
+            </div>
+          </div>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="clone.samplePath">Training Sample</span>
+            <div class="drawer-inline">
+              <input class="credential-input grow" id="voiceCloneSamplePathInput" type="text" value="">
+              <button class="action-button secondary" id="voiceCloneBrowseButton" type="button" data-i18n="button.browse">Browse</button>
+            </div>
+          </label>
+
+          <div class="advanced-grid clone-record-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="clone.recordInput">Record Input</span>
+              <div class="custom-select compact" data-select="voice-clone-record-device"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="clone.recordAction">Microphone Sample</span>
+              <div class="drawer-inline">
+                <button class="action-button secondary" id="voiceCloneRecordButton" type="button" data-i18n="button.recordClone">Record from Mic</button>
+                <span class="drawer-note inline-note" id="voiceCloneRecordNote"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="advanced-grid">
+            <div class="field">
+              <span class="field-label" data-i18n="clone.speakerId">Speaker ID</span>
+              <div class="custom-select compact" data-select="voice-clone-speaker-id"></div>
+            </div>
+
+            <div class="field">
+              <span class="field-label" data-i18n="clone.language">Training Language</span>
+              <div class="custom-select compact" data-select="voice-clone-language"></div>
+            </div>
+          </div>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="clone.referenceText">Reference Text</span>
+            <textarea class="drawer-textarea" id="voiceCloneReferenceInput" rows="3"></textarea>
+          </label>
+
+          <label class="credential-field">
+            <span class="field-label" data-i18n="clone.demoText">Demo Text</span>
+            <textarea class="drawer-textarea" id="voiceCloneDemoInput" rows="3"></textarea>
+          </label>
+
+          <div class="drawer-inline">
+            <button class="action-button secondary" id="trainVoiceCloneButton" type="button" data-i18n="button.trainClone">Train Clone</button>
+            <button class="action-button secondary" id="refreshVoiceCloneButton" type="button" data-i18n="button.refreshClone">Refresh Status</button>
+          </div>
+
+          <div class="drawer-note" id="cloneStatusNote"></div>
+        </section>
+
+        <section class="drawer-section">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" data-i18n="advanced.eyebrow">Latency &amp; Cleanup</p>
+              <h3 data-i18n="advanced.title">Advanced Channel Tuning</h3>
+            </div>
+          </div>
+
+          <div class="advanced-grid">
+            <div class="advanced-card channel-detail-panel" data-channel-panel="a">
+              <p class="eyebrow" data-i18n="channel.aEyebrow">Channel A</p>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.startupBuffer">Startup Buffer (ms)</span>
+                <input class="credential-input" id="aStartupBufferInput" type="number" min="16" max="200" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.noiseGate">Noise Gate (dB)</span>
+                <input class="credential-input" id="aNoiseGateInput" type="number" min="-90" max="-10" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.silenceHold">Silence Hold (ms)</span>
+                <input class="credential-input" id="aHoldInput" type="number" min="0" max="1200" step="10">
+              </label>
+
+              <label class="toggle-row">
+                <input id="aSkipSilenceInput" type="checkbox">
+                <span data-i18n="advanced.dropSilence">Drop silent chunks</span>
+              </label>
+
+              <label class="toggle-row">
+                <input id="aEnableAgcInput" type="checkbox">
+                <span data-i18n="advanced.enableAgc">Enable AGC</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcTarget">AGC Target (dBFS)</span>
+                <input class="credential-input" id="aAgcTargetInput" type="number" min="-30" max="-6" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcMaxGain">AGC Max Gain</span>
+                <input class="credential-input" id="aAgcMaxGainInput" type="number" min="1" max="16" step="0.5">
+              </label>
+
+              <label class="toggle-row">
+                <input id="aEnableDenoiseInput" type="checkbox">
+                <span data-i18n="advanced.enableDenoise">Enable Denoise</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.denoiseStrength">Denoise Strength</span>
+                <input class="credential-input" id="aDenoiseStrengthInput" type="number" min="0" max="0.95" step="0.01">
+              </label>
+
+              <label class="toggle-row">
+                <input id="aMonitorEnabledInput" type="checkbox">
+                <span data-i18n="advanced.monitorPlayback">Monitor translated voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.monitorDevice">Monitor Device</span>
+                <div class="custom-select compact" data-select="a-monitor-output"></div>
+              </div>
+            </div>
+
+            <div class="advanced-card channel-detail-panel" data-channel-panel="b">
+              <p class="eyebrow" data-i18n="channel.bEyebrow">Channel B</p>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.startupBuffer">Startup Buffer (ms)</span>
+                <input class="credential-input" id="bStartupBufferInput" type="number" min="16" max="200" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.noiseGate">Noise Gate (dB)</span>
+                <input class="credential-input" id="bNoiseGateInput" type="number" min="-90" max="-10" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.silenceHold">Silence Hold (ms)</span>
+                <input class="credential-input" id="bHoldInput" type="number" min="0" max="1200" step="10">
+              </label>
+
+              <label class="toggle-row">
+                <input id="bSkipSilenceInput" type="checkbox">
+                <span data-i18n="advanced.dropSilence">Drop silent chunks</span>
+              </label>
+
+              <label class="toggle-row">
+                <input id="bEnableAgcInput" type="checkbox">
+                <span data-i18n="advanced.enableAgc">Enable AGC</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcTarget">AGC Target (dBFS)</span>
+                <input class="credential-input" id="bAgcTargetInput" type="number" min="-30" max="-6" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcMaxGain">AGC Max Gain</span>
+                <input class="credential-input" id="bAgcMaxGainInput" type="number" min="1" max="16" step="0.5">
+              </label>
+
+              <label class="toggle-row">
+                <input id="bEnableDenoiseInput" type="checkbox">
+                <span data-i18n="advanced.enableDenoise">Enable Denoise</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.denoiseStrength">Denoise Strength</span>
+                <input class="credential-input" id="bDenoiseStrengthInput" type="number" min="0" max="0.95" step="0.01">
+              </label>
+
+              <label class="toggle-row">
+                <input id="bMonitorEnabledInput" type="checkbox">
+                <span data-i18n="advanced.monitorPlayback">Monitor translated voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.monitorDevice">Monitor Device</span>
+                <div class="custom-select compact" data-select="b-monitor-output"></div>
+              </div>
+            </div>
+
+            <div class="advanced-card channel-detail-panel" data-channel-panel="c">
+              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.startupBuffer">Startup Buffer (ms)</span>
+                <input class="credential-input" id="cStartupBufferInput" type="number" min="16" max="200" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.noiseGate">Noise Gate (dB)</span>
+                <input class="credential-input" id="cNoiseGateInput" type="number" min="-90" max="-10" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.silenceHold">Silence Hold (ms)</span>
+                <input class="credential-input" id="cHoldInput" type="number" min="0" max="1200" step="10">
+              </label>
+
+              <label class="toggle-row">
+                <input id="cSkipSilenceInput" type="checkbox">
+                <span data-i18n="advanced.dropSilence">Drop silent chunks</span>
+              </label>
+
+              <label class="toggle-row">
+                <input id="cEnableAgcInput" type="checkbox">
+                <span data-i18n="advanced.enableAgc">Enable AGC</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcTarget">AGC Target (dBFS)</span>
+                <input class="credential-input" id="cAgcTargetInput" type="number" min="-30" max="-6" step="1">
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.agcMaxGain">AGC Max Gain</span>
+                <input class="credential-input" id="cAgcMaxGainInput" type="number" min="1" max="16" step="0.5">
+              </label>
+
+              <label class="toggle-row">
+                <input id="cEnableDenoiseInput" type="checkbox">
+                <span data-i18n="advanced.enableDenoise">Enable Denoise</span>
+              </label>
+
+              <label class="credential-field">
+                <span class="field-label" data-i18n="advanced.denoiseStrength">Denoise Strength</span>
+                <input class="credential-input" id="cDenoiseStrengthInput" type="number" min="0" max="0.95" step="0.01">
+              </label>
+
+              <label class="toggle-row">
+                <input id="cMonitorEnabledInput" type="checkbox">
+                <span data-i18n="advanced.monitorPlayback">Monitor translated voice</span>
+              </label>
+
+              <div class="field">
+                <span class="field-label" data-i18n="advanced.monitorDevice">Monitor Device</span>
+                <div class="custom-select compact" data-select="c-monitor-output"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <script src="./dashboard_state.js"></script>
+  <script src="./dashboard.js"></script>
+</body>
+</html>
