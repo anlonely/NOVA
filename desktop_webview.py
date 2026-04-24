@@ -10,6 +10,7 @@ from typing import Any
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Slot, QUrl
+from PySide6.QtGui import QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -22,6 +23,7 @@ APP_ROOT = get_app_root()
 RESOURCE_ROOT = get_resource_root()
 ROOT = APP_ROOT
 HTML_PATH = RESOURCE_ROOT / "web_dashboard" / "index.html"
+APP_ICON_PATH = RESOURCE_ROOT / "assets" / "icons" / ("nova_interp.ico" if sys.platform.startswith("win") else "nova_interp.icns")
 SINGLE_INSTANCE_MUTEX = None
 SINGLE_INSTANCE_LOCK_FILE = None
 ERROR_ALREADY_EXISTS = 183
@@ -204,6 +206,8 @@ class NovaWindow(QMainWindow):
         self.controller = NovaController()
         self.bridge = NovaBridge(self.controller)
         self.setWindowTitle("NOVA INTERP")
+        if APP_ICON_PATH.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.resize(1600, 980)
 
         self.view = QWebEngineView(self)
@@ -237,6 +241,8 @@ def main() -> None:
             os.environ.setdefault("QT_MAC_WANTS_LAYER", "1")
         app = QApplication(sys.argv)
         app.setApplicationName("NOVA INTERP")
+        if APP_ICON_PATH.exists():
+            app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         window = NovaWindow()
         window.showMaximized()
         sys.exit(app.exec())

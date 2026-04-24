@@ -13,6 +13,7 @@ datas = [
     (str(project_root / "app_version.json"), "."),
 ]
 
+app_icon = project_root / "assets" / "icons" / ("nova_interp.ico" if sys.platform.startswith("win") else "nova_interp.icns")
 native_core_name = "nova-audio-core.exe" if sys.platform.startswith("win") else "nova-audio-core"
 native_core = project_root / "native_audio_core" / "target" / "release" / native_core_name
 if native_core.exists():
@@ -51,6 +52,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    icon=str(app_icon) if app_icon.exists() else None,
 )
 
 coll = COLLECT(
@@ -67,7 +69,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="NOVA INTERP.app",
-        icon=None,
+        icon=str(app_icon) if app_icon.exists() else None,
         bundle_identifier="com.nova.interp",
         info_plist={
             "CFBundleName": "NOVA INTERP",
