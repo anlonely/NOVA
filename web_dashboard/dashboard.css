@@ -19,7 +19,7 @@
   --danger-soft: rgba(239, 68, 68, 0.16);
   --shadow: 0 18px 40px rgba(0, 0, 0, 0.26);
   --radius: 12px;
-  --gap: 16px;
+  --gap: 12px;
 }
 
 * {
@@ -78,7 +78,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: var(--gap);
-  padding: 18px 20px 14px;
+  padding: 12px 20px 10px;
   flex: 0 0 auto;
 }
 
@@ -108,7 +108,7 @@ body {
 .brand-stack {
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 5px;
 }
 
 .brand-line {
@@ -123,7 +123,7 @@ p {
 }
 
 h1 {
-  font-size: 34px;
+  font-size: 28px;
   letter-spacing: -0.04em;
   font-weight: 650;
 }
@@ -144,7 +144,14 @@ h3 {
 .drawer-note {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.35;
+}
+
+.app-header > .brand-stack > .brand-copy,
+.transcript-dock > .dock-header .brand-copy,
+[data-i18n="dock.copy"],
+#routeCopy {
+  display: none;
 }
 
 .eyebrow,
@@ -175,8 +182,8 @@ h3 {
 }
 
 .tag {
-  height: 26px;
-  padding: 0 10px;
+  height: 24px;
+  padding: 0 9px;
   background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
   font-size: 12px;
@@ -219,7 +226,7 @@ h3 {
 
 .icon-button,
 .action-button {
-  height: 40px;
+  height: 36px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
@@ -229,7 +236,7 @@ h3 {
 }
 
 .icon-button {
-  width: 40px;
+  width: 36px;
   padding: 0;
 }
 
@@ -299,7 +306,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  padding: 0 20px 20px;
+  padding: 0 20px 16px;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -330,7 +337,82 @@ h3 {
 }
 
 .dashboard-app.is-subtitle-focus .top-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "route";
+  gap: 10px;
+}
+
+.dashboard-app.is-subtitle-focus #channelCardA,
+.dashboard-app.is-subtitle-focus #channelCardB,
+.dashboard-app.is-subtitle-focus #channelCardC {
   display: none;
+}
+
+.dashboard-app.is-subtitle-focus .route-card {
+  padding: 10px 14px;
+  gap: 8px;
+}
+
+.dashboard-app.is-subtitle-focus .route-header {
+  align-items: center;
+}
+
+.dashboard-app.is-subtitle-focus .route-card .card-copy {
+  -webkit-line-clamp: 1;
+}
+
+.dashboard-app.is-subtitle-focus .route-network {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: minmax(58px, auto);
+  gap: 10px;
+  min-height: 0;
+  padding: 0;
+}
+
+.dashboard-app.is-subtitle-focus .route-svg,
+.dashboard-app.is-subtitle-focus .ast-core {
+  display: none;
+}
+
+.dashboard-app.is-subtitle-focus .node-input-a,
+.dashboard-app.is-subtitle-focus .ast-core,
+.dashboard-app.is-subtitle-focus .node-output-a,
+.dashboard-app.is-subtitle-focus .node-input-b,
+.dashboard-app.is-subtitle-focus .node-output-b,
+.dashboard-app.is-subtitle-focus .node-input-c,
+.dashboard-app.is-subtitle-focus .node-output-c {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.dashboard-app.is-subtitle-focus .route-node-card {
+  min-height: 58px;
+  padding: 8px 10px;
+}
+
+.dashboard-app.is-subtitle-focus .ast-core {
+  min-height: 0;
+}
+
+.dashboard-app.is-subtitle-focus .ast-pill {
+  height: 30px;
+  min-width: 58px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.dashboard-app.is-subtitle-focus .ast-core p {
+  display: none;
+}
+
+.dashboard-app.is-subtitle-focus .route-metrics {
+  display: flex;
+}
+
+.dashboard-app.is-subtitle-focus .route-detail-grid {
+  display: grid;
 }
 
 .transcript-dock {
@@ -362,8 +444,8 @@ h3 {
 }
 
 .channel-card {
-  padding: 11px 12px;
-  gap: 10px;
+  padding: 8px 12px;
+  gap: 6px;
 }
 
 .control-card {
@@ -385,7 +467,7 @@ h3 {
 
 .route-card {
   grid-area: route;
-  gap: 14px;
+  gap: 10px;
   min-height: 100%;
 }
 
@@ -401,24 +483,24 @@ h3 {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: end;
-  gap: 8px 12px;
+  gap: 5px 10px;
 }
 
 .channel-device-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
+  gap: 6px 10px;
 }
 
 .channel-config-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px 10px;
+  gap: 5px 8px;
 }
 
 .channel-tools-button {
   min-width: 0;
-  height: 30px;
+  height: 26px;
   padding: 0 10px;
   font-size: 12px;
 }
@@ -427,8 +509,8 @@ h3 {
 .summary-pill,
 .diag-chip,
 .metric-chip {
-  min-height: 28px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 0 9px;
   font-size: 12px;
 }
 
@@ -564,8 +646,8 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
-  padding: 0 8px;
+  min-height: 24px;
+  padding: 0 7px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
@@ -605,7 +687,7 @@ h3 {
 
 .channel-card .card-header {
   align-items: center;
-  gap: 8px 12px;
+  gap: 5px 10px;
 }
 
 .channel-card .card-copy {
@@ -613,12 +695,12 @@ h3 {
 }
 
 .channel-card h2 {
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.15;
 }
 
 .channel-card .field-label {
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   font-size: 10px;
 }
 
@@ -640,8 +722,8 @@ h3 {
 
 .channel-card .status-pill,
 .channel-card .diag-chip {
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 22px;
+  padding: 0 7px;
   font-size: 11px;
 }
 
@@ -719,17 +801,17 @@ h3 {
 }
 
 .channel-card .select-trigger {
-  min-height: 34px;
+  min-height: 30px;
   gap: 8px;
   padding: 0 10px;
 }
 
 .channel-card .select-trigger .value {
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .channel-card .custom-select.compact .select-trigger {
-  min-height: 32px;
+  min-height: 30px;
 }
 
 .select-trigger svg {
@@ -747,10 +829,10 @@ h3 {
 }
 
 .channel-card .custom-select.is-device-select .select-trigger {
-  min-height: 42px;
+  min-height: 32px;
   align-items: center;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .custom-select.is-device-select .select-trigger .value {
@@ -867,13 +949,13 @@ h3 {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px 10px;
+  gap: 5px 8px;
 }
 
 .channel-inline-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-start;
 }
@@ -978,12 +1060,12 @@ h3 {
   position: relative;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1fr);
-  grid-template-rows: repeat(3, minmax(74px, 1fr));
-  gap: 14px 16px;
+  grid-template-columns: minmax(0, 1fr) 136px minmax(0, 1fr);
+  grid-template-rows: repeat(3, minmax(58px, 1fr));
+  gap: 10px 14px;
   align-items: center;
-  min-height: 276px;
-  padding: 4px 8px;
+  min-height: 216px;
+  padding: 2px 6px;
 }
 
 .route-svg {
@@ -1028,8 +1110,8 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 14px;
-  min-height: 78px;
+  padding: 9px 12px;
+  min-height: 60px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
@@ -1110,13 +1192,13 @@ h3 {
 
 .node-label {
   color: rgba(224, 230, 237, 0.48);
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 
 .node-value {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 650;
   line-height: 1.35;
   overflow: hidden;
@@ -1135,14 +1217,14 @@ h3 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 100%;
 }
 
 .ast-ring {
   position: absolute;
-  width: 124px;
-  height: 124px;
+  width: 98px;
+  height: 98px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
@@ -1155,13 +1237,13 @@ h3 {
 .ast-ring::after {
   content: "";
   position: absolute;
-  inset: 14px;
+  inset: 12px;
   border-radius: 50%;
   border: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .ast-ring::after {
-  inset: 28px;
+  inset: 24px;
   border-style: solid;
   border-color: rgba(255, 255, 255, 0.04);
 }
@@ -1172,10 +1254,10 @@ h3 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 74px;
-  height: 40px;
+  min-width: 64px;
+  height: 34px;
   border-radius: 999px;
-  padding: 0 18px;
+  padding: 0 14px;
   background: linear-gradient(180deg, rgba(59, 130, 246, 0.28), rgba(16, 185, 129, 0.18));
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-weight: 700;
@@ -1186,7 +1268,7 @@ h3 {
   position: relative;
   z-index: 1;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -1196,7 +1278,7 @@ h3 {
 }
 
 .metric-chip {
-  padding: 8px 12px;
+  padding: 5px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
@@ -2033,4 +2115,76 @@ h3 {
   .drawer-body {
     max-height: calc(100vh - 126px);
   }
+}
+
+.route-detail-grid {
+  display: none;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.route-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 112px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.route-detail-card.accent-blue {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.018));
+}
+
+.route-detail-card.accent-green {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.08), rgba(255, 255, 255, 0.018));
+}
+
+.route-detail-card.accent-amber {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08), rgba(255, 255, 255, 0.018));
+}
+
+.ast-detail-card {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.08), rgba(255, 255, 255, 0.018));
+}
+
+.route-detail-head,
+.route-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.route-detail-head {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.route-detail-head strong {
+  color: #9bc0ff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.route-detail-row span {
+  flex: 0 0 auto;
+  color: rgba(224, 230, 237, 0.48);
+  font-size: 11px;
+}
+
+.route-detail-row strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

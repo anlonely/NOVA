@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import queue
+import sys
 import threading
 import time
 import uuid
@@ -38,6 +39,7 @@ AUTO_RECONNECT_MAX_DELAY_SEC = 12.0
 AUTO_RECONNECT_MAX_ATTEMPTS = 6
 ROOT = get_app_root()
 LOG_DIR = ROOT / "output" / "logs"
+DATACLASS_SLOTS = {"slots": True} if sys.version_info >= (3, 10) else {}
 
 LANGUAGE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("Chinese", "zh"),
@@ -58,7 +60,7 @@ SUBTITLE_MODES: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(slots=True)
+@dataclass(**DATACLASS_SLOTS)
 class PerformancePreset:
     key: str
     label: str
@@ -166,7 +168,7 @@ def use_system_proxy() -> bool:
     return str(os.getenv("NOVA_USE_SYSTEM_PROXY", "")).strip().lower() in {"1", "true", "yes", "on"}
 
 
-@dataclass(slots=True)
+@dataclass(**DATACLASS_SLOTS)
 class Credentials:
     app_key: str
     access_key: str
@@ -176,7 +178,7 @@ class Credentials:
     dns_hosts: tuple[str, ...] = ()
 
 
-@dataclass(slots=True)
+@dataclass(**DATACLASS_SLOTS)
 class AudioDeviceRef:
     device_id: str
     name: str
@@ -191,7 +193,7 @@ class AudioDeviceRef:
         return f"{prefix} | {self.name}"
 
 
-@dataclass(slots=True)
+@dataclass(**DATACLASS_SLOTS)
 class ChannelSettings:
     channel_id: str
     display_name: str
@@ -231,7 +233,7 @@ class ChannelSettings:
     local_tts_speed: float = 1.0
 
 
-@dataclass(slots=True)
+@dataclass(**DATACLASS_SLOTS)
 class ChannelStats:
     channel_id: str
     session_state: str = "idle"
@@ -448,7 +450,7 @@ class DeviceCatalog:
 
         for speaker in sc.all_speakers():
             ref = AudioDeviceRef(
-                device_id=speaker.id,
+                device_id=str(speaker.id),
                 name=speaker.name,
                 kind="speaker",
                 loopback=False,
@@ -459,7 +461,7 @@ class DeviceCatalog:
 
         for microphone in sc.all_microphones(include_loopback=True):
             ref = AudioDeviceRef(
-                device_id=microphone.id,
+                device_id=str(microphone.id),
                 name=microphone.name,
                 kind="microphone",
                 loopback=bool(getattr(microphone, "isloopback", False)),
@@ -500,12 +502,19 @@ class DeviceCatalog:
     def get_microphone(self, device_id: str):
         if not device_id:
             return None
-        return sc.get_microphone(id=device_id, include_loopback=True)
+        return sc.get_microphone(id=parse_soundcard_device_id(device_id), include_loopback=True)
 
     def get_speaker(self, device_id: str):
         if not device_id:
             return None
-        return sc.get_speaker(id=device_id)
+        return sc.get_speaker(id=parse_soundcard_device_id(device_id))
+
+
+def parse_soundcard_device_id(device_id: str) -> Any:
+    value = str(device_id or "")
+    if value.isdigit():
+        return int(value)
+    return value
 
 
 class TranslationChannel:

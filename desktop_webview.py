@@ -5,7 +5,9 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 from typing import Any
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Slot, QUrl
 from PySide6.QtWebChannel import QWebChannel
@@ -21,6 +23,7 @@ RESOURCE_ROOT = get_resource_root()
 ROOT = APP_ROOT
 HTML_PATH = RESOURCE_ROOT / "web_dashboard" / "index.html"
 SINGLE_INSTANCE_MUTEX = None
+SINGLE_INSTANCE_LOCK_FILE = None
 ERROR_ALREADY_EXISTS = 183
 
 if os.name == "nt":
@@ -36,10 +39,23 @@ else:
 
 
 def acquire_single_instance() -> bool:
-    global SINGLE_INSTANCE_MUTEX
-    if os.name != "nt":
-        return True
+    global SINGLE_INSTANCE_MUTEX, SINGLE_INSTANCE_LOCK_FILE
     mutex_name = f"Local\\NovaInterpDesktop_{hashlib.sha1(str(ROOT).encode('utf-8')).hexdigest()}"
+    if os.name != "nt":
+        lock_name = f"nova-interp-{hashlib.sha1(str(ROOT).encode('utf-8')).hexdigest()}.lock"
+        lock_path = Path(tempfile.gettempdir()) / lock_name
+        lock_file = lock_path.open("w")
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError):
+            lock_file.close()
+            return False
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+        SINGLE_INSTANCE_LOCK_FILE = lock_file
+        return True
     mutex = KERNEL32.CreateMutexW(None, False, mutex_name)
     if not mutex:
         raise ctypes.WinError(ctypes.get_last_error())
@@ -51,8 +67,19 @@ def acquire_single_instance() -> bool:
 
 
 def release_single_instance() -> None:
-    global SINGLE_INSTANCE_MUTEX
-    if not SINGLE_INSTANCE_MUTEX or os.name != "nt":
+    global SINGLE_INSTANCE_MUTEX, SINGLE_INSTANCE_LOCK_FILE
+    if os.name != "nt":
+        if SINGLE_INSTANCE_LOCK_FILE:
+            try:
+                import fcntl
+
+                fcntl.flock(SINGLE_INSTANCE_LOCK_FILE.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            SINGLE_INSTANCE_LOCK_FILE.close()
+        SINGLE_INSTANCE_LOCK_FILE = None
+        return
+    if not SINGLE_INSTANCE_MUTEX:
         SINGLE_INSTANCE_MUTEX = None
         return
     KERNEL32.CloseHandle(SINGLE_INSTANCE_MUTEX)
@@ -206,6 +233,8 @@ def main() -> None:
         return
     try:
         os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-features=msSmartScreenProtection")
+        if sys.platform == "darwin":
+            os.environ.setdefault("QT_MAC_WANTS_LAYER", "1")
         app = QApplication(sys.argv)
         app.setApplicationName("NOVA INTERP")
         window = NovaWindow()

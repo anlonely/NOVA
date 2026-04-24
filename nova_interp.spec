@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -12,7 +13,8 @@ datas = [
     (str(project_root / "app_version.json"), "."),
 ]
 
-native_core = project_root / "native_audio_core" / "target" / "release" / "nova-audio-core.exe"
+native_core_name = "nova-audio-core.exe" if sys.platform.startswith("win") else "nova-audio-core"
+native_core = project_root / "native_audio_core" / "target" / "release" / native_core_name
 if native_core.exists():
     datas.append((str(native_core), "native_audio_core/target/release"))
 
@@ -60,3 +62,19 @@ coll = COLLECT(
     upx_exclude=[],
     name="NOVA-INTERP",
 )
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="NOVA INTERP.app",
+        icon=None,
+        bundle_identifier="com.nova.interp",
+        info_plist={
+            "CFBundleName": "NOVA INTERP",
+            "CFBundleDisplayName": "NOVA INTERP",
+            "CFBundleShortVersionString": "0.5.0",
+            "CFBundleVersion": "0.5.0",
+            "NSHighResolutionCapable": True,
+            "NSMicrophoneUsageDescription": "NOVA INTERP needs microphone access for real-time interpreting.",
+        },
+    )

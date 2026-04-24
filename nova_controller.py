@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import sys
 import queue
 import subprocess
 import threading
@@ -1154,9 +1155,9 @@ class NovaController:
 
         self.values.update(
             {
-                "a-input": outbound.get("capture_device_id", ""),
-                "a-output": outbound.get("playback_device_id", ""),
-                "a-monitor-output": outbound.get("monitor_playback_device_id", ""),
+                "a-input": str(outbound.get("capture_device_id", "") or ""),
+                "a-output": str(outbound.get("playback_device_id", "") or ""),
+                "a-monitor-output": str(outbound.get("monitor_playback_device_id", "") or ""),
                 "a-source": outbound.get("source_language", self.values["a-source"]),
                 "a-target": outbound.get("target_language", self.values["a-target"]),
                 "a-speaker": str(outbound.get("speaker_id", self.values["a-speaker"]) or ""),
@@ -1178,9 +1179,9 @@ class NovaController:
                 "a-input-enabled": "1" if outbound.get("capture_enabled", True) else "0",
                 "a-output-enabled": "1" if outbound.get("playback_enabled", True) else "0",
                 "a-monitor-enabled": "1" if outbound.get("monitor_playback_enabled", self.values["a-monitor-enabled"] == "1") else "0",
-                "b-input": inbound.get("capture_device_id", ""),
-                "b-output": inbound.get("playback_device_id", ""),
-                "b-monitor-output": inbound.get("monitor_playback_device_id", ""),
+                "b-input": str(inbound.get("capture_device_id", "") or ""),
+                "b-output": str(inbound.get("playback_device_id", "") or ""),
+                "b-monitor-output": str(inbound.get("monitor_playback_device_id", "") or ""),
                 "b-source": inbound.get("source_language", self.values["b-source"]),
                 "b-target": inbound.get("target_language", self.values["b-target"]),
                 "b-speaker": str(inbound.get("speaker_id", self.values["b-speaker"]) or ""),
@@ -1202,9 +1203,9 @@ class NovaController:
                 "b-input-enabled": "1" if inbound.get("capture_enabled", True) else "0",
                 "b-output-enabled": "1" if inbound.get("playback_enabled", True) else "0",
                 "b-monitor-enabled": "1" if inbound.get("monitor_playback_enabled", self.values["b-monitor-enabled"] == "1") else "0",
-                "c-input": game_inbound.get("capture_device_id", ""),
-                "c-output": game_inbound.get("playback_device_id", ""),
-                "c-monitor-output": game_inbound.get("monitor_playback_device_id", ""),
+                "c-input": str(game_inbound.get("capture_device_id", "") or ""),
+                "c-output": str(game_inbound.get("playback_device_id", "") or ""),
+                "c-monitor-output": str(game_inbound.get("monitor_playback_device_id", "") or ""),
                 "c-source": game_inbound.get("source_language", self.values["c-source"]),
                 "c-target": game_inbound.get("target_language", self.values["c-target"]),
                 "c-speaker": str(game_inbound.get("speaker_id", self.values["c-speaker"]) or ""),
@@ -1398,6 +1399,7 @@ class NovaController:
         return self.catalog.default_speaker_id()
 
     def _resolve_selection(self, value: str, mapping: dict[str, object], key: str) -> str:
+        value = str(value or "")
         if value and value in mapping:
             return value
         alias = key.split("-", 1)[0]
@@ -2425,7 +2427,15 @@ $synth.Dispose()
                 return value
         assets = manifest.get("assets")
         if isinstance(assets, dict):
-            for platform_key in ("windows", "win64", "win"):
+            if sys.platform == "darwin":
+                platform_keys = ("macos", "mac", "darwin", "osx", "universal2", "arm64", "x64")
+            elif sys.platform.startswith("win"):
+                platform_keys = ("windows", "win64", "win")
+            elif sys.platform.startswith("linux"):
+                platform_keys = ("linux", "linux64", "x64")
+            else:
+                platform_keys = (sys.platform,)
+            for platform_key in platform_keys:
                 node = assets.get(platform_key)
                 if isinstance(node, dict):
                     for key in ("download_url", "downloadUrl", "url"):

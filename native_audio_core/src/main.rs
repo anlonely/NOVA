@@ -38,12 +38,32 @@ fn looks_virtual(name: &str) -> bool {
         .any(|needle| lowered.contains(needle))
 }
 
+fn native_host_id() -> HostId {
+    #[cfg(target_os = "windows")]
+    {
+        HostId::Wasapi
+    }
+    #[cfg(target_os = "macos")]
+    {
+        HostId::CoreAudio
+    }
+    #[cfg(target_os = "linux")]
+    {
+        HostId::Alsa
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        cpal::default_host().id()
+    }
+}
+
 fn list_devices() -> Result<(), String> {
-    let host = cpal::host_from_id(HostId::Wasapi).map_err(|err| err.to_string())?;
+    let host_id = native_host_id();
+    let host = cpal::host_from_id(host_id).map_err(|err| err.to_string())?;
     let mut devices = Vec::new();
-    for device in host.devices().map_err(|err| err.to_string())? {
+    for (index, device) in host.devices().map_err(|err| err.to_string())?.enumerate() {
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-        let id = format!("{:?}", device);
+        let id = format!("{}::{index}", name.replace("::", "_"));
         if let Ok(configs) = device.supported_input_configs() {
             let (channels, rates) = config_rates(configs);
             devices.push(DeviceInfo {
@@ -69,7 +89,7 @@ fn list_devices() -> Result<(), String> {
     }
 
     let snapshot = DeviceSnapshot {
-        backend: "wasapi".to_string(),
+        backend: format!("{:?}", host_id).to_lowercase(),
         devices,
     };
     println!("{}", serde_json::to_string_pretty(&snapshot).map_err(|err| err.to_string())?);

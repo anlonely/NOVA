@@ -1,6 +1,6 @@
 # NOVA INTERP
 
-NOVA INTERP is a Windows-first desktop console for low-latency bilingual interpreting with independent audio routing, real-time subtitles, Volcengine AST streaming, and voice-clone workflow hooks.
+NOVA INTERP is a desktop console for low-latency bilingual interpreting with independent audio routing, real-time subtitles, Volcengine AST streaming, and voice-clone workflow hooks. The original workflow is Windows-first; this fork also includes local macOS launch support.
 
 This repository currently ships:
 
@@ -41,11 +41,19 @@ Copy-Item .\config.example.json .\config.local.json
 .\launch.ps1
 ```
 
+On macOS, use:
+
+```bash
+./launch_macos.sh
+```
+
 ## Other entry points
 
 - Main desktop dashboard: `.\launch.ps1`
+- macOS desktop dashboard: `./launch_macos.sh`
 - Legacy Tk prototype: `.\launch_legacy_tk.ps1`
 - Static dashboard preview in browser: `.\launch_web_dashboard.ps1`
+- macOS static dashboard preview: `./launch_web_dashboard_macos.sh`
 - AST smoke test: `.\.venv\Scripts\python smoke_test_ast.py`
 
 ## Packaging for Windows
@@ -63,9 +71,24 @@ The script will:
 - package the desktop app with PyInstaller
 - emit a versioned zip bundle and SHA256 file under `output\release`
 
+## Packaging for macOS
+
+Use the local build script to generate a `.app` bundle and release zip:
+
+```bash
+./scripts/build_macos.sh
+```
+
+The script will:
+
+- install runtime and build dependencies into `.venv`
+- optionally build `native_audio_core` if Rust is available
+- package `NOVA INTERP.app` with PyInstaller
+- emit a versioned zip bundle and SHA256 file under `output/release`
+
 ## GitHub Actions
 
-The repository includes a Windows packaging workflow:
+The repository includes Windows and macOS packaging workflows:
 
 - push to `main`: build the app and upload the release bundle as an artifact
 - push a tag like `v0.4.0`: build the app and publish the zip bundle to GitHub Releases

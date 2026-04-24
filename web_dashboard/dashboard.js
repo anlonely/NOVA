@@ -864,6 +864,19 @@ const channelRefs = {
   c: makeChannelRefs("C", "c", "amber"),
 };
 
+const routeDetailRefs = {
+  a: makeRouteDetailRefs("A"),
+  b: makeRouteDetailRefs("B"),
+  c: makeRouteDetailRefs("C"),
+  ast: {
+    status: document.getElementById("routeDetailAstStatus"),
+    path: document.getElementById("routeDetailAstPath"),
+    astLatency: document.getElementById("routeDetailAstLatency"),
+    ttsLatency: document.getElementById("routeDetailTtsLatency"),
+    running: document.getElementById("routeDetailRunning"),
+  },
+};
+
 const latencyRefs = {
   a: makeLatencyRefs("A", "a"),
   b: makeLatencyRefs("B", "b"),
@@ -937,6 +950,7 @@ let openSelectAnchor = null;
 const selectScrollState = new Map();
 let transientNotice = "";
 let topControlsCollapsed = false;
+let autoSubtitleFocus = false;
 
 applyServerState(fallbackExternalState);
 
@@ -979,6 +993,17 @@ function makeLatencyRefs(suffix, alias) {
     recognition: document.getElementById(`latency${suffix}Recognition`),
     translation: document.getElementById(`latency${suffix}Translation`),
     tts: document.getElementById(`latency${suffix}Tts`),
+  };
+}
+
+function makeRouteDetailRefs(suffix) {
+  return {
+    status: document.getElementById(`routeDetail${suffix}Status`),
+    input: document.getElementById(`routeDetail${suffix}Input`),
+    output: document.getElementById(`routeDetail${suffix}Output`),
+    latency: document.getElementById(`routeDetail${suffix}Latency`),
+    queue: document.getElementById(`routeDetail${suffix}Queue`),
+    level: document.getElementById(`routeDetail${suffix}Level`),
   };
 }
 
@@ -1030,11 +1055,11 @@ function renderTopControlsVisibility() {
   layoutToggleButton.textContent = label;
   layoutToggleButton.title = topControlsCollapsed
     ? uiLanguage() === "zh"
-      ? "显示顶部通道和线路设置"
-      : "Show channels and route diagnostics"
+      ? "显示顶部通道配置"
+      : "Show channel controls"
     : uiLanguage() === "zh"
-      ? "隐藏顶部通道和线路设置，只保留下方字幕区"
-      : "Hide channels and route diagnostics to focus on subtitles";
+      ? "隐藏通道配置，保留线路诊断和下方字幕区"
+      : "Hide channel controls, keep route diagnostics and subtitles";
   layoutToggleButton.setAttribute("aria-pressed", topControlsCollapsed ? "true" : "false");
 }
 
@@ -1132,30 +1157,38 @@ function setNotice(message, timeout = 3200) {
 }
 
 function localizeOption(key, option) {
+  const normalizedOption = normalizeOption(option);
   const language = uiLanguage();
   let localized = null;
 
   if (key === "scene") {
-    localized = SCENE_COPY[language][option.value];
+    localized = SCENE_COPY[language][normalizedOption.value];
   } else if (key === "domain-preset") {
-    localized = DOMAIN_COPY[language][option.value];
+    localized = DOMAIN_COPY[language][normalizedOption.value];
   } else if (key === "voice-clone-language") {
-    localized = CLONE_TRAIN_LANGUAGE_COPY[language][option.value];
+    localized = CLONE_TRAIN_LANGUAGE_COPY[language][normalizedOption.value];
   } else if (key.endsWith("-source") || key.endsWith("-target")) {
-    localized = LANGUAGE_COPY[language][option.value];
+    localized = LANGUAGE_COPY[language][normalizedOption.value];
   } else if (key.endsWith("-profile")) {
-    localized = PROFILE_COPY[language][option.value];
+    localized = PROFILE_COPY[language][normalizedOption.value];
   } else if (key.endsWith("-subtitle")) {
-    localized = SUBTITLE_COPY[language][option.value];
+    localized = SUBTITLE_COPY[language][normalizedOption.value];
   } else if (key.endsWith("-speaker") && !key.includes("-clone-speaker")) {
-    localized = AST_VOICE_COPY[language]?.[option.value];
+    localized = AST_VOICE_COPY[language]?.[normalizedOption.value];
   } else if (key === "voice-clone-speaker-id" || key.endsWith("-clone-speaker")) {
-    if (!option.value) {
+    if (!normalizedOption.value) {
       localized = { label: t("option.none"), hint: t("option.astVoice") };
     }
   }
 
-  return localized ? { ...option, ...localized } : option;
+  return localized ? { ...normalizedOption, ...localized } : normalizedOption;
+}
+
+function normalizeOption(option) {
+  const value = String(option?.value ?? "").trim();
+  const label = String(option?.label ?? value).trim() || value;
+  const hint = String(option?.hint ?? "").trim();
+  return { ...option, value, label, hint };
 }
 
 function buildCloneCatalogOptions() {
@@ -1190,7 +1223,12 @@ function buildCloneCatalogOptions() {
 }
 
 function normalizeOptionGroups(groups = {}) {
-  const normalized = { ...fallbackOptionGroups, ...groups };
+  const normalized = Object.fromEntries(
+    Object.entries({ ...fallbackOptionGroups, ...groups }).map(([key, options]) => [
+      key,
+      Array.isArray(options) ? options.map((option) => normalizeOption(option)) : [],
+    ]),
+  );
   const cloneOptions = buildCloneCatalogOptions();
   normalized["voice-clone-speaker-id"] = cloneOptions;
   CHANNELS.forEach((alias) => {
@@ -1482,9 +1520,11 @@ function buildSelectMenu(selectRoot, key, options, disabled, isDeviceSelect) {
       item.classList.add("is-active");
     }
     item.title = option.label;
+    const label = escapeAttribute(option.label);
+    const hint = escapeAttribute(option.hint || "");
     item.innerHTML = `
-      <span class="select-option-label">${option.label}</span>
-      <span class="select-option-hint">${option.hint || ""}</span>
+      <span class="select-option-label">${label}</span>
+      <span class="select-option-hint">${hint}</span>
     `;
     item.addEventListener("click", async () => {
       if (disabled) {
@@ -1995,6 +2035,41 @@ function formatQueue(stats) {
   return uiLanguage() === "zh" ? `队列 ${depth.toString().padStart(2, "0")} / 丢弃 ${dropped}` : `Queue ${depth.toString().padStart(2, "0")} / Drop ${dropped}`;
 }
 
+function formatAudioLevel(stats) {
+  const level = Number(stats?.audio_level_db ?? -96);
+  return Number.isFinite(level) ? `${level.toFixed(0)} dB` : "--";
+}
+
+function formatRouteLatency(stats) {
+  const audio = stats?.first_audio_latency_ms;
+  const translation = stats?.first_translation_latency_ms;
+  const parts = [];
+  if (typeof translation === "number") {
+    parts.push(`AST ${translation.toFixed(0)}ms`);
+  }
+  if (typeof audio === "number") {
+    parts.push(`音频 ${audio.toFixed(0)}ms`);
+  }
+  return parts.join(" / ") || "--";
+}
+
+function renderRouteDetail(alias, runtime) {
+  const refs = routeDetailRefs[alias];
+  if (!refs) {
+    return;
+  }
+  const stats = runtime?.stats || {};
+  refs.status.textContent = displayStatus(runtime?.label || runtime?.status || "Ready");
+  refs.input.textContent = getOptionLabel(`${alias}-input`) || "--";
+  refs.output.textContent = getOptionLabel(`${alias}-output`) || "--";
+  refs.latency.textContent = formatRouteLatency(stats);
+  refs.queue.textContent = formatQueue(stats);
+  refs.level.textContent = formatAudioLevel(stats);
+  refs.input.title = refs.input.textContent;
+  refs.output.title = refs.output.textContent;
+  refs.latency.title = refs.latency.textContent;
+}
+
 function renderChannel(alias) {
   const refs = channelRefs[alias];
   const runtime = appState.runtime?.channels?.[alias] || { signal: "idle", label: "Ready", pane: "Idle", status: "Ready", stats: {} };
@@ -2014,6 +2089,7 @@ function renderChannel(alias) {
   refs.routeInput.title = getOptionHint(`${alias}-input`) || refs.routeInput.textContent;
   refs.routeOutput.title = getOptionHint(`${alias}-output`) || refs.routeOutput.textContent;
   refs.metricInput.textContent = appState.runtime?.metrics?.[`input${alias.toUpperCase()}`] || "--";
+  renderRouteDetail(alias, runtime);
 
   setVisualizer(refs.visualizer, runtime);
   setRouteState(refs.routeInputNode, runtime.signal);
@@ -2032,6 +2108,15 @@ function renderRouteCard() {
   );
   document.getElementById("metricAst").textContent = appState.runtime?.metrics?.ast || "--";
   document.getElementById("metricTts").textContent = appState.runtime?.metrics?.tts || "--";
+  const astRefs = routeDetailRefs.ast;
+  if (astRefs) {
+    astRefs.status.textContent = appState.runtime?.running ? (uiLanguage() === "zh" ? "运行中" : "Live") : t("status.astReady");
+    astRefs.path.textContent = appState.runtime?.globalHint || "direct";
+    astRefs.path.title = astRefs.path.textContent;
+    astRefs.astLatency.textContent = appState.runtime?.metrics?.ast || "--";
+    astRefs.ttsLatency.textContent = appState.runtime?.metrics?.tts || "--";
+    astRefs.running.textContent = appState.runtime?.running ? (uiLanguage() === "zh" ? "已启动" : "Running") : (uiLanguage() === "zh" ? "待机" : "Standby");
+  }
 }
 
 function renderChannelCard(alias) {
@@ -2142,6 +2227,15 @@ function renderDrawers() {
 
 function renderRunningState() {
   const running = Boolean(appState.runtime?.running);
+  if (running && !topControlsCollapsed) {
+    autoSubtitleFocus = true;
+    setTopControlsCollapsed(true);
+  } else if (!running && autoSubtitleFocus && topControlsCollapsed) {
+    autoSubtitleFocus = false;
+    setTopControlsCollapsed(false);
+  } else if (!running) {
+    autoSubtitleFocus = false;
+  }
   app.classList.toggle("is-running", running);
   startButton.disabled = running;
   stopButton.disabled = !running;
