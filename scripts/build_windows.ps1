@@ -22,7 +22,12 @@ if ($cargo) {
     Pop-Location
   }
 } else {
-  Write-Host "Cargo not found. Skipping native audio core build."
+  throw "Cargo not found. Cannot build required native audio core."
+}
+
+$nativeCore = Join-Path $projectRoot "native_audio_core\target\release\nova-audio-core.exe"
+if (-not (Test-Path $nativeCore)) {
+  throw "Required native audio core binary is missing: $nativeCore"
 }
 
 $buildDir = Join-Path $projectRoot "build"
@@ -39,6 +44,7 @@ if (Test-Path $distDir) {
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
 & $venvPython -m PyInstaller --noconfirm --clean nova_interp.spec
+& $venvPython scripts\verify_release_bundle.py --dist-path $bundleDir
 
 Copy-Item -LiteralPath (Join-Path $projectRoot "config.example.json") -Destination (Join-Path $bundleDir "config.example.json") -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "README.md") -Destination (Join-Path $bundleDir "README.md") -Force

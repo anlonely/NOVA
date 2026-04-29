@@ -6,10 +6,10 @@ import json
 import os
 import sys
 import tempfile
-from typing import Any
 from pathlib import Path
+from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QObject, Slot, QUrl
+from PySide6.QtCore import QObject, QUrl, QUrlQuery, Slot, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
@@ -23,6 +23,7 @@ APP_ROOT = get_app_root()
 RESOURCE_ROOT = get_resource_root()
 ROOT = APP_ROOT
 HTML_PATH = RESOURCE_ROOT / "web_dashboard" / "index.html"
+TRANSCRIPT_WINDOW_HTML_PATH = RESOURCE_ROOT / "web_dashboard" / "transcript_window.html"
 APP_ICON_PATH = RESOURCE_ROOT / "assets" / "icons" / ("nova_interp.ico" if sys.platform.startswith("win") else "nova_interp.icns")
 SINGLE_INSTANCE_MUTEX = None
 SINGLE_INSTANCE_LOCK_FILE = None
@@ -89,9 +90,19 @@ def release_single_instance() -> None:
 
 
 class NovaBridge(QObject):
-    def __init__(self, controller: NovaController) -> None:
+    def __init__(self, controller: NovaController, window_manager: Optional["TranscriptWindowManager"] = None) -> None:
         super().__init__()
         self.controller = controller
+        self.window_manager = window_manager
+
+    def _load_payload(self, payload_json: str) -> Optional[dict[str, Any]]:
+        try:
+            payload = json.loads(payload_json or "{}")
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return payload
 
     def _normalize_json(self, value: Any) -> Any:
         if value is None or isinstance(value, (str, int, float, bool)):
@@ -199,12 +210,200 @@ class NovaBridge(QObject):
         )
         return path or ""
 
+    @Slot(str, result=str)
+    def open_transcript_window(self, payload_json: str) -> str:
+        if self.window_manager is None:
+            return self._dump({"ok": False, "open": False, "error": "window_manager_missing"})
+        payload = self._load_payload(payload_json)
+        if payload is None:
+            return self._dump({"ok": False, "open": False, "error": "invalid_payload"})
+        alias = payload.get("alias", "")
+        return self._dump(self.window_manager.open_window(alias, payload))
+
+    @Slot(str, result=str)
+    def close_transcript_window(self, payload_json: str) -> str:
+        if self.window_manager is None:
+            return self._dump({"ok": False, "open": False, "error": "window_manager_missing"})
+        payload = self._load_payload(payload_json)
+        if payload is None:
+            return self._dump({"ok": False, "open": False, "error": "invalid_payload"})
+        alias = payload.get("alias", "")
+        return self._dump(self.window_manager.close_window(alias))
+
+    @Slot(str, result=str)
+    def set_transcript_window_topmost(self, payload_json: str) -> str:
+        if self.window_manager is None:
+            return self._dump({"ok": False, "open": False, "error": "window_manager_missing"})
+        payload = self._load_payload(payload_json)
+        if payload is None:
+            return self._dump({"ok": False, "open": False, "error": "invalid_payload"})
+        alias = payload.get("alias", "")
+        pinned = bool(payload.get("pinned", False))
+        return self._dump(self.window_manager.set_window_topmost(alias, pinned))
+
+    @Slot(str, result=str)
+    def is_transcript_window_open(self, payload_json: str) -> str:
+        if self.window_manager is None:
+            return self._dump({"ok": False, "open": False})
+        payload = self._load_payload(payload_json)
+        if payload is None:
+            return self._dump({"ok": False, "open": False, "error": "invalid_payload"})
+        alias = payload.get("alias", "")
+        return self._dump(self.window_manager.get_window_state(alias))
+
+    @Slot(result=str)
+    def close_all_transcript_windows(self) -> str:
+        if self.window_manager is not None:
+            self.window_manager.close_all()
+        return self._dump({"ok": True})
+
+
+class TranscriptWindow(QMainWindow):
+    def __init__(
+        self,
+        alias: str,
+        bridge: QObject,
+        parent: QMainWindow,
+        html_path: Path,
+        on_closed: Callable[[str], None],
+        language: str = "en",
+    ) -> None:
+        super().__init__(parent=parent)
+        self.alias = alias
+        self.language = self._normalize_language(language)
+        self._on_closed = on_closed
+        self.setWindowTitle(self._localized_title())
+        self.resize(500, 520)
+        self.setMinimumSize(360, 340)
+
+        self.view = QWebEngineView(self)
+        self.setCentralWidget(self.view)
+        page = self.view.page()
+        channel = QWebChannel(page)
+        channel.registerObject("novaBridge", bridge)
+        page.setWebChannel(channel)
+        settings = page.settings()
+        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, False)
+        settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+        self._load_page(html_path)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+
+    @staticmethod
+    def _normalize_language(language: str) -> str:
+        return "zh" if str(language or "").lower().startswith("zh") else "en"
+
+    def _localized_title(self) -> str:
+        channel_label = f"通道 {self.alias.upper()}" if self.language == "zh" else f"Channel {self.alias.upper()}"
+        return f"{channel_label}{' 实时翻译' if self.language == 'zh' else ' Live Translation'}"
+
+    def _load_page(self, html_path: Path) -> None:
+        url = QUrl.fromLocalFile(str(html_path))
+        query = QUrlQuery()
+        query.addQueryItem("alias", self.alias)
+        query.addQueryItem("lang", self.language)
+        url.setQuery(query)
+        self.view.load(url)
+
+    def set_topmost(self, topmost: bool) -> None:
+        self.setWindowTitle(self._localized_title())
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, topmost)
+        self.show()
+
+    def set_language(self, language: str) -> None:
+        next_language = self._normalize_language(language)
+        if next_language == self.language:
+            return
+        self.language = next_language
+        self.setWindowTitle(self._localized_title())
+        self._load_page(Path(str(self.view.url().toLocalFile())))
+
+    def closeEvent(self, event) -> None:  # pragma: no cover - GUI lifecycle
+        self._on_closed(self.alias)
+        super().closeEvent(event)
+
+
+class TranscriptWindowManager:
+    def __init__(self, bridge: QObject, parent: QMainWindow, html_path: Path) -> None:
+        self.bridge = bridge
+        self.parent = parent
+        self.html_path = html_path
+        self.windows: dict[str, TranscriptWindow] = {}
+        self.pinned: dict[str, bool] = {}
+
+    def _normalize_alias(self, alias: str) -> Optional[str]:
+        return alias if alias in ("a", "b", "c") else None
+
+    def _default_response(self, alias: str, open_state: bool, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"ok": True, "alias": alias, "open": open_state, "pinned": bool(self.pinned.get(alias, False))}
+        if extra is not None:
+            payload.update(extra)
+        return payload
+
+    def get_window_state(self, alias: str) -> dict[str, Any]:
+        alias = self._normalize_alias(alias.lower() if isinstance(alias, str) else "")
+        if alias is None:
+            return {"ok": False, "open": False, "error": "invalid_alias"}
+        return {"ok": True, "open": alias in self.windows, "pinned": bool(self.pinned.get(alias, False))}
+
+    def open_window(self, alias: str, payload: dict[str, Any]) -> dict[str, Any]:
+        alias = self._normalize_alias(alias.lower() if isinstance(alias, str) else "")
+        if alias is None:
+            return {"ok": False, "open": False, "error": "invalid_alias"}
+        pinned = bool(payload.get("pinned", self.pinned.get(alias, False)))
+        self.pinned[alias] = pinned
+        language = str(payload.get("lang", "en"))
+        window = self.windows.get(alias)
+        if window is None:
+            window = TranscriptWindow(alias, self.bridge, self.parent, self.html_path, self._on_window_closed, language=language)
+            self.windows[alias] = window
+        else:
+            window.set_language(language)
+        window.set_topmost(pinned)
+        window.raise_()
+        window.activateWindow()
+        window.show()
+        return self._default_response(alias, True)
+
+    def close_window(self, alias: str) -> dict[str, Any]:
+        alias = self._normalize_alias(alias.lower() if isinstance(alias, str) else "")
+        if alias is None:
+            return {"ok": False, "open": False, "error": "invalid_alias"}
+        window = self.windows.get(alias)
+        if window is None:
+            return self._default_response(alias, False)
+        window.close()
+        self.windows.pop(alias, None)
+        return self._default_response(alias, False)
+
+    def set_window_topmost(self, alias: str, pinned: bool) -> dict[str, Any]:
+        alias = self._normalize_alias(alias.lower() if isinstance(alias, str) else "")
+        if alias is None:
+            return {"ok": False, "open": False, "error": "invalid_alias"}
+        self.pinned[alias] = bool(pinned)
+        window = self.windows.get(alias)
+        if window is None:
+            return {"ok": True, "open": False, "pinned": bool(pinned)}
+        window.set_topmost(pinned)
+        return {"ok": True, "open": True, "pinned": bool(pinned)}
+
+    def close_all(self) -> None:
+        for window in list(self.windows.values()):
+            window.close()
+        self.windows.clear()
+
+    def _on_window_closed(self, alias: str) -> None:
+        self.windows.pop(alias, None)
+
 
 class NovaWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.controller = NovaController()
         self.bridge = NovaBridge(self.controller)
+        self.transcript_window_manager = TranscriptWindowManager(self.bridge, self, TRANSCRIPT_WINDOW_HTML_PATH)
+        self.bridge.window_manager = self.transcript_window_manager
         self.setWindowTitle("NOVA INTERP")
         if APP_ICON_PATH.exists():
             self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
@@ -228,6 +427,7 @@ class NovaWindow(QMainWindow):
         self.view.load(QUrl.fromLocalFile(str(HTML_PATH)))
 
     def closeEvent(self, event) -> None:  # pragma: no cover - GUI lifecycle
+        self.transcript_window_manager.close_all()
         self.controller.shutdown()
         super().closeEvent(event)
 

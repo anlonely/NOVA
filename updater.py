@@ -5,6 +5,7 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from paths import get_app_root, get_resource_root

@@ -16,12 +16,20 @@ python -m pip install -r requirements-build.txt
 if command -v cargo >/dev/null 2>&1 && [[ -f native_audio_core/Cargo.toml ]]; then
   cargo build --release --manifest-path native_audio_core/Cargo.toml
 else
-  echo "Cargo not found. Skipping native audio core build."
+  echo "Cargo not found or native_audio_core/Cargo.toml is missing. Cannot build required native audio core." >&2
+  exit 1
+fi
+
+native_core="native_audio_core/target/release/nova-audio-core"
+if [[ ! -x "$native_core" ]]; then
+  echo "Required native audio core binary is missing or not executable: $native_core" >&2
+  exit 1
 fi
 
 rm -rf build dist
 mkdir -p output/release
 python -m PyInstaller --noconfirm --clean nova_interp.spec
+python scripts/verify_release_bundle.py --dist-path "dist/NOVA INTERP.app"
 
 version="$(python - <<'PY'
 import json

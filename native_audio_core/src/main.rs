@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
-use std::io::{self, BufRead, Write};
+use std::collections::{HashMap, VecDeque};
+use std::io::{self, BufRead, Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,7 @@ use cpal::{Device, Host, HostId, SampleFormat, Stream, StreamConfig, SupportedSt
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct DeviceInfo {
     id: String,
     name: String,
@@ -23,7 +23,7 @@ struct DeviceInfo {
     virtual_device: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct DeviceSnapshot {
     backend: String,
     devices: Vec<DeviceInfo>,
@@ -35,10 +35,11 @@ enum Command {
     Health,
     ListDevices,
     StartCapture(CaptureConfig),
-    StopCapture,
+    StopCapture(ChannelCommand),
     StartPlayback(PlaybackConfig),
     PlaybackChunk(PlaybackChunkCommand),
-    StopPlayback,
+    PlaybackChunkBinary(PlaybackChunkBinaryCommand),
+    StopPlayback(ChannelCommand),
     Shutdown,
 }
 
@@ -59,6 +60,7 @@ struct CaptureConfig {
     vad_mode: Option<String>,
     enable_noise_floor: Option<bool>,
     adaptive_chunking: Option<bool>,
+    binary_audio_events: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -74,6 +76,28 @@ struct PlaybackChunkCommand {
     channel: String,
     sample_rate: Option<u32>,
     data: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct PlaybackChunkBinaryCommand {
+    channel: String,
+    sample_rate: Option<u32>,
+    byte_len: usize,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+struct ChannelCommand {
+    channel: Option<String>,
+}
+
+#[derive(Debug)]
+enum RuntimeCommand {
+    Json(Command),
+    PlaybackBinary {
+        channel: String,
+        sample_rate: Option<u32>,
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Debug)]
@@ -98,6 +122,7 @@ struct AudioChunkEvent {
     agc_gain: f32,
     resampler: String,
     emitted_at_ms: u128,
+    binary_audio: bool,
     pcm16: Vec<i16>,
 }
 
@@ -122,8 +147,14 @@ struct CaptureRuntime {
 
 struct PlaybackRuntime {
     stop: Arc<AtomicBool>,
-    sender: Sender<Vec<i16>>,
+    sender: Sender<PlaybackPacket>,
     worker: thread::JoinHandle<()>,
+}
+
+#[derive(Debug)]
+struct PlaybackPacket {
+    samples: Vec<i16>,
+    sample_rate: u32,
 }
 
 fn native_host_id() -> HostId {
@@ -178,29 +209,36 @@ fn device_stable_id(kind: &str, name: &str, index: usize) -> String {
 fn list_devices_snapshot() -> Result<DeviceSnapshot, String> {
     let (host_id, host) = native_host()?;
     let mut devices = Vec::new();
-    for (index, device) in host.devices().map_err(|err| err.to_string())?.enumerate() {
+    for (index, device) in host.input_devices().map_err(|err| err.to_string())?.enumerate() {
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         if let Ok(configs) = device.supported_input_configs() {
             let (channels, rates) = config_rates(configs);
-            devices.push(DeviceInfo {
-                id: device_stable_id("input", &name, index),
-                name: name.clone(),
-                kind: "input".to_string(),
-                channels,
-                sample_rates: rates,
-                virtual_device: looks_virtual(&name),
-            });
+            if channels > 0 && !rates.is_empty() {
+                devices.push(DeviceInfo {
+                    id: device_stable_id("input", &name, index),
+                    name: name.clone(),
+                    kind: "input".to_string(),
+                    channels,
+                    sample_rates: rates,
+                    virtual_device: looks_virtual(&name),
+                });
+            }
         }
+    }
+    for (index, device) in host.output_devices().map_err(|err| err.to_string())?.enumerate() {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         if let Ok(configs) = device.supported_output_configs() {
             let (channels, rates) = config_rates(configs);
-            devices.push(DeviceInfo {
-                id: device_stable_id("output", &name, index),
-                name: name.clone(),
-                kind: "output".to_string(),
-                channels,
-                sample_rates: rates,
-                virtual_device: looks_virtual(&name),
-            });
+            if channels > 0 && !rates.is_empty() {
+                devices.push(DeviceInfo {
+                    id: device_stable_id("output", &name, index),
+                    name: name.clone(),
+                    kind: "output".to_string(),
+                    channels,
+                    sample_rates: rates,
+                    virtual_device: looks_virtual(&name),
+                });
+            }
         }
     }
     Ok(DeviceSnapshot {
@@ -217,6 +255,26 @@ fn list_devices() -> Result<(), String> {
     let snapshot = list_devices_snapshot()?;
     println!("{}", serde_json::to_string_pretty(&snapshot).map_err(|err| err.to_string())?);
     Ok(())
+}
+
+fn device_snapshot_signature(snapshot: &DeviceSnapshot) -> String {
+    let mut entries: Vec<String> = snapshot
+        .devices
+        .iter()
+        .map(|device| {
+            format!(
+                "{}|{}|{}|{}|{:?}|{}",
+                device.kind,
+                device.id,
+                device.name,
+                device.channels,
+                device.sample_rates,
+                device.virtual_device
+            )
+        })
+        .collect();
+    entries.sort();
+    format!("{}::{}", snapshot.backend, entries.join(";;"))
 }
 
 fn emit_json(value: Value) -> Result<(), String> {
@@ -269,6 +327,7 @@ fn choose_input_config(device: &Device, target_rate: u32) -> Result<(StreamConfi
 
 fn start_capture(config: CaptureConfig, event_tx: Sender<CoreEvent>) -> Result<CaptureRuntime, String> {
     let (_, host) = native_host()?;
+    let channel = config.channel.clone();
     let target_rate = config.sample_rate.unwrap_or(16_000).max(8_000);
     let (device, _, stable_id) = find_input_device(&host, &config.device_id)?;
     let device_name = device.name().unwrap_or_else(|_| stable_id.clone());
@@ -291,8 +350,9 @@ fn start_capture(config: CaptureConfig, event_tx: Sender<CoreEvent>) -> Result<C
     stream.play().map_err(|err| err.to_string())?;
     emit_json(json!({
         "event": "capture_started",
-        "channel": stable_id,
+        "channel": channel,
         "device_name": device_name,
+        "device_id": stable_id,
         "input_sample_rate": input_rate,
         "target_sample_rate": target_rate,
         "sample_format": format!("{sample_format:?}"),
@@ -376,6 +436,7 @@ struct CaptureProcessor {
     vad_mode: String,
     enable_noise_floor: bool,
     adaptive_chunking: bool,
+    binary_audio_events: bool,
     noise_floor_db: f32,
     current_agc_gain: f32,
     started_at: Instant,
@@ -417,6 +478,7 @@ impl CaptureProcessor {
             vad_mode: normalize_vad_mode(config.vad_mode.as_deref()),
             enable_noise_floor: config.enable_noise_floor.unwrap_or(true),
             adaptive_chunking,
+            binary_audio_events: config.binary_audio_events.unwrap_or(false),
             noise_floor_db: -72.0,
             current_agc_gain: 1.0,
             started_at: Instant::now(),
@@ -533,6 +595,7 @@ impl CaptureProcessor {
                     agc_gain: self.current_agc_gain,
                     resampler: self.resampler_quality.clone(),
                     emitted_at_ms: self.started_at.elapsed().as_millis(),
+                    binary_audio: self.binary_audio_events,
                     pcm16: pre,
                 }));
             }
@@ -551,6 +614,7 @@ impl CaptureProcessor {
                 agc_gain: self.current_agc_gain,
                 resampler: self.resampler_quality.clone(),
                 emitted_at_ms: self.started_at.elapsed().as_millis(),
+                binary_audio: self.binary_audio_events,
                 pcm16,
             }));
         } else {
@@ -705,8 +769,8 @@ fn write_event(event: CoreEvent) -> Result<(), String> {
             for sample in chunk.pcm16 {
                 bytes.extend_from_slice(&sample.to_le_bytes());
             }
-            emit_json(json!({
-                "event": "audio_chunk",
+            let header = json!({
+                "event": if chunk.binary_audio { "audio_chunk_binary" } else { "audio_chunk" },
                 "channel": chunk.channel,
                 "seq": chunk.seq,
                 "sample_rate": chunk.sample_rate,
@@ -720,8 +784,19 @@ fn write_event(event: CoreEvent) -> Result<(), String> {
                 "agc_gain": chunk.agc_gain,
                 "resampler": chunk.resampler,
                 "emitted_at_ms": chunk.emitted_at_ms,
-                "data": BASE64.encode(bytes),
-            }))
+                "byte_len": bytes.len(),
+            });
+            if chunk.binary_audio {
+                let mut stdout = io::stdout().lock();
+                serde_json::to_writer(&mut stdout, &header).map_err(|err| err.to_string())?;
+                stdout.write_all(b"\n").map_err(|err| err.to_string())?;
+                stdout.write_all(&bytes).map_err(|err| err.to_string())?;
+                stdout.flush().map_err(|err| err.to_string())
+            } else {
+                let mut payload = header;
+                payload["data"] = json!(BASE64.encode(bytes));
+                emit_json(payload)
+            }
         }
         CoreEvent::Metrics(metrics) => emit_json(json!({
             "event": "metrics",
@@ -740,23 +815,92 @@ fn write_event(event: CoreEvent) -> Result<(), String> {
     }
 }
 
+fn stop_capture_runtime(runtime: CaptureRuntime) {
+    runtime.stop.store(true, Ordering::SeqCst);
+    drop(runtime.stream);
+}
+
+fn stop_playback_runtime(runtime: PlaybackRuntime) {
+    runtime.stop.store(true, Ordering::SeqCst);
+    drop(runtime.sender);
+    let _ = runtime.worker.join();
+}
+
+fn queue_playback_bytes(
+    playbacks: &HashMap<String, PlaybackRuntime>,
+    channel: String,
+    sample_rate: Option<u32>,
+    bytes: Vec<u8>,
+    cmd: &str,
+) -> Result<(), String> {
+    if let Some(runtime) = playbacks.get(&channel) {
+        match decode_pcm16_bytes(&bytes) {
+            Ok(samples) => {
+                let sample_count = samples.len();
+                let _ = runtime.sender.send(PlaybackPacket {
+                    samples,
+                    sample_rate: sample_rate.unwrap_or(24_000).max(1),
+                });
+                emit_json(json!({
+                    "event": "playback_queued",
+                    "cmd": cmd,
+                    "channel": channel,
+                    "sample_rate": sample_rate.unwrap_or(0),
+                    "samples": sample_count,
+                    "bytes": bytes.len(),
+                }))
+            }
+            Err(error) => emit_json(json!({"event": "error", "cmd": cmd, "channel": channel, "message": error})),
+        }
+    } else {
+        emit_json(json!({"event": "error", "cmd": cmd, "channel": channel, "message": "Playback channel is not running"}))
+    }
+}
+
 fn serve() -> Result<(), String> {
     let (host_id, _) = native_host()?;
     emit_json(json!({"event": "ready", "backend": backend_name(host_id)}))?;
-    let mut capture: Option<CaptureRuntime> = None;
-    let mut playback: Option<PlaybackRuntime> = None;
+    let mut captures: HashMap<String, CaptureRuntime> = HashMap::new();
+    let mut playbacks: HashMap<String, PlaybackRuntime> = HashMap::new();
     let mut last_device_scan = Instant::now();
-    let mut last_device_count = list_devices_snapshot().map(|snapshot| snapshot.devices.len()).unwrap_or(0);
+    let mut last_device_snapshot = list_devices_snapshot().ok();
+    let mut last_device_signature = last_device_snapshot.as_ref().map(device_snapshot_signature).unwrap_or_default();
     let (event_tx, event_rx) = mpsc::channel::<CoreEvent>();
-    let (command_tx, command_rx) = mpsc::channel::<Result<Command, String>>();
+    let (command_tx, command_rx) = mpsc::channel::<Result<RuntimeCommand, String>>();
 
     thread::spawn(move || {
         let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            let command = match line {
-                Ok(line) if line.trim().is_empty() => continue,
-                Ok(line) => serde_json::from_str(&line).map_err(|err| format!("Invalid command: {err}")),
-                Err(err) => Err(err.to_string()),
+        let mut reader = io::BufReader::new(stdin.lock());
+        let mut line = String::new();
+        loop {
+            line.clear();
+            let read = match reader.read_line(&mut line) {
+                Ok(read) => read,
+                Err(err) => {
+                    let _ = command_tx.send(Err(err.to_string()));
+                    break;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            if line.trim().is_empty() {
+                continue;
+            }
+            let command = match serde_json::from_str::<Command>(&line) {
+                Ok(Command::PlaybackChunkBinary(command)) => {
+                    let mut data = vec![0_u8; command.byte_len];
+                    match reader.read_exact(&mut data) {
+                        Ok(()) => Ok(RuntimeCommand::PlaybackBinary {
+                            channel: command.channel,
+                            sample_rate: command.sample_rate,
+                            data,
+                        }),
+                        Err(err) => Err(format!("Failed to read playback binary frame: {err}")),
+                    }
+                }
+                Ok(command) => Ok(RuntimeCommand::Json(command)),
+                Err(err) => Err(format!("Invalid command: {err}")),
             };
             if command_tx.send(command).is_err() {
                 break;
@@ -774,9 +918,18 @@ fn serve() -> Result<(), String> {
                 if last_device_scan.elapsed() >= Duration::from_secs(2) {
                     last_device_scan = Instant::now();
                     if let Ok(snapshot) = list_devices_snapshot() {
-                        if snapshot.devices.len() != last_device_count {
-                            last_device_count = snapshot.devices.len();
-                            emit_json(json!({"event": "devices_changed", "snapshot": snapshot}))?;
+                        let signature = device_snapshot_signature(&snapshot);
+                        if signature != last_device_signature {
+                            let previous_count = last_device_snapshot.as_ref().map(|item| item.devices.len()).unwrap_or(0);
+                            let current_count = snapshot.devices.len();
+                            last_device_signature = signature;
+                            last_device_snapshot = Some(snapshot.clone());
+                            emit_json(json!({
+                                "event": "devices_changed",
+                                "previous_device_count": previous_count,
+                                "device_count": current_count,
+                                "snapshot": snapshot,
+                            }))?;
                         }
                     }
                 }
@@ -785,82 +938,88 @@ fn serve() -> Result<(), String> {
             Err(RecvTimeoutError::Disconnected) => break,
         };
         match command {
-            Ok(Command::Health) => {
+            Ok(RuntimeCommand::Json(Command::Health)) => {
                 emit_json(json!({"event": "health", "ok": true, "backend": backend_name(host_id)}))?;
             }
-            Ok(Command::ListDevices) => {
+            Ok(RuntimeCommand::Json(Command::ListDevices)) => {
                 emit_json(json!({"event": "devices", "snapshot": list_devices_snapshot()?}))?;
             }
-            Ok(Command::StartCapture(config)) => {
-                if let Some(runtime) = capture.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.stream);
+            Ok(RuntimeCommand::Json(Command::StartCapture(config))) => {
+                let channel = config.channel.clone();
+                if let Some(runtime) = captures.remove(&channel) {
+                    stop_capture_runtime(runtime);
                 }
                 match start_capture(config, event_tx.clone()) {
                     Ok(runtime) => {
-                        capture = Some(runtime);
-                        emit_json(json!({"event": "ok", "cmd": "start-capture"}))?;
+                        captures.insert(channel.clone(), runtime);
+                        emit_json(json!({"event": "ok", "cmd": "start-capture", "channel": channel}))?;
                     }
                     Err(error) => {
-                        emit_json(json!({"event": "error", "message": error}))?;
+                        emit_json(json!({"event": "error", "cmd": "start-capture", "channel": channel, "message": error}))?;
                     }
                 }
             }
-            Ok(Command::StartPlayback(config)) => {
-                if let Some(runtime) = playback.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.sender);
-                    let _ = runtime.worker.join();
+            Ok(RuntimeCommand::Json(Command::StartPlayback(config))) => {
+                let channel = config.channel.clone();
+                if let Some(runtime) = playbacks.remove(&channel) {
+                    stop_playback_runtime(runtime);
                 }
                 match start_playback(config) {
                     Ok(runtime) => {
-                        playback = Some(runtime);
-                        emit_json(json!({"event": "ok", "cmd": "start-playback"}))?;
+                        playbacks.insert(channel.clone(), runtime);
+                        emit_json(json!({"event": "ok", "cmd": "start-playback", "channel": channel}))?;
                     }
-                    Err(error) => emit_json(json!({"event": "error", "message": error}))?,
+                    Err(error) => emit_json(json!({"event": "error", "cmd": "start-playback", "channel": channel, "message": error}))?,
                 }
             }
-            Ok(Command::PlaybackChunk(chunk)) => {
-                if let Some(runtime) = playback.as_ref() {
-                    match decode_pcm16_base64(&chunk.data) {
-                        Ok(samples) => {
-                            let sample_count = samples.len();
-                            let _ = runtime.sender.send(samples);
-                            emit_json(json!({
-                                "event": "playback_queued",
-                                "channel": chunk.channel,
-                                "sample_rate": chunk.sample_rate.unwrap_or(0),
-                                "samples": sample_count,
-                            }))?;
-                        }
-                        Err(error) => emit_json(json!({"event": "error", "message": error}))?,
+            Ok(RuntimeCommand::Json(Command::PlaybackChunk(chunk))) => {
+                let bytes = match BASE64.decode(chunk.data) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        emit_json(json!({"event": "error", "cmd": "playback-chunk", "channel": chunk.channel, "message": error.to_string()}))?;
+                        continue;
                     }
+                };
+                queue_playback_bytes(&playbacks, chunk.channel, chunk.sample_rate, bytes, "playback-chunk")?;
+            }
+            Ok(RuntimeCommand::PlaybackBinary { channel, sample_rate, data }) => {
+                queue_playback_bytes(&playbacks, channel, sample_rate, data, "playback-chunk-binary")?;
+            }
+            Ok(RuntimeCommand::Json(Command::PlaybackChunkBinary(_))) => {
+                emit_json(json!({"event": "error", "cmd": "playback-chunk-binary", "message": "Binary playback command was not decoded"}))?;
+            }
+            Ok(RuntimeCommand::Json(Command::StopPlayback(command))) => {
+                if let Some(channel) = command.channel.filter(|value| !value.trim().is_empty()) {
+                    if let Some(runtime) = playbacks.remove(&channel) {
+                        stop_playback_runtime(runtime);
+                    }
+                    emit_json(json!({"event": "ok", "cmd": "stop-playback", "channel": channel}))?;
+                } else {
+                    for (_, runtime) in playbacks.drain() {
+                        stop_playback_runtime(runtime);
+                    }
+                    emit_json(json!({"event": "ok", "cmd": "stop-playback"}))?;
                 }
             }
-            Ok(Command::StopPlayback) => {
-                if let Some(runtime) = playback.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.sender);
-                    let _ = runtime.worker.join();
+            Ok(RuntimeCommand::Json(Command::StopCapture(command))) => {
+                if let Some(channel) = command.channel.filter(|value| !value.trim().is_empty()) {
+                    if let Some(runtime) = captures.remove(&channel) {
+                        stop_capture_runtime(runtime);
+                    }
+                    emit_json(json!({"event": "ok", "cmd": "stop-capture", "channel": channel}))?;
+                } else {
+                    for (_, runtime) in captures.drain() {
+                        stop_capture_runtime(runtime);
+                    }
+                    emit_json(json!({"event": "ok", "cmd": "stop-capture"}))?;
                 }
-                emit_json(json!({"event": "ok", "cmd": "stop-playback"}))?;
             }
-            Ok(Command::StopCapture) => {
-                if let Some(runtime) = capture.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.stream);
+            Ok(RuntimeCommand::Json(Command::Shutdown)) => {
+                for (_, runtime) in captures.drain() {
+                    stop_capture_runtime(runtime);
                 }
-                emit_json(json!({"event": "ok", "cmd": "stop-capture"}))?;
-            }
-            Ok(Command::Shutdown) => {
-                if let Some(runtime) = capture.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.stream);
-                }
-                if let Some(runtime) = playback.take() {
-                    runtime.stop.store(true, Ordering::SeqCst);
-                    drop(runtime.sender);
-                    let _ = runtime.worker.join();
+                for (_, runtime) in playbacks.drain() {
+                    stop_playback_runtime(runtime);
                 }
                 emit_json(json!({"event": "shutdown"}))?;
                 return Ok(());
@@ -870,14 +1029,11 @@ fn serve() -> Result<(), String> {
             }
         }
     }
-    if let Some(runtime) = capture.take() {
-        runtime.stop.store(true, Ordering::SeqCst);
-        drop(runtime.stream);
+    for (_, runtime) in captures.drain() {
+        stop_capture_runtime(runtime);
     }
-    if let Some(runtime) = playback.take() {
-        runtime.stop.store(true, Ordering::SeqCst);
-        drop(runtime.sender);
-        let _ = runtime.worker.join();
+    for (_, runtime) in playbacks.drain() {
+        stop_playback_runtime(runtime);
     }
     Ok(())
 }
@@ -887,19 +1043,22 @@ fn start_playback(config: PlaybackConfig) -> Result<PlaybackRuntime, String> {
     let sample_rate = config.sample_rate.unwrap_or(24_000).max(8_000);
     let (device, _, stable_id) = find_output_device(&host, &config.device_id)?;
     let device_name = device.name().unwrap_or_else(|_| stable_id.clone());
-    let stream_config = choose_output_config(&device, sample_rate)?;
+    let (stream_config, sample_format) = choose_output_config(&device, sample_rate)?;
     let output_channels = stream_config.channels.max(1) as usize;
-    let (sender, receiver) = mpsc::channel::<Vec<i16>>();
+    let output_sample_rate = stream_config.sample_rate.0;
+    let (sender, receiver) = mpsc::channel::<PlaybackPacket>();
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = stop.clone();
     let worker = thread::spawn(move || {
-        let _ = run_playback_worker(device, stream_config, output_channels, receiver, worker_stop);
+        let _ = run_playback_worker(device, stream_config, sample_format, output_channels, receiver, worker_stop);
     });
     emit_json(json!({
         "event": "playback_started",
         "channel": config.channel,
         "device_name": device_name,
         "target_sample_rate": sample_rate,
+        "output_sample_rate": output_sample_rate,
+        "sample_format": format!("{sample_format:?}"),
         "chunk_ms": config.chunk_ms.unwrap_or(20).clamp(10, 120),
         "platform_strategy": platform_strategy(),
     }))?;
@@ -925,53 +1084,46 @@ fn find_output_device(host: &Host, requested_id: &str) -> Result<(Device, usize,
     Err(format!("Output device not found: {requested}"))
 }
 
-fn choose_output_config(device: &Device, target_rate: u32) -> Result<StreamConfig, String> {
+fn choose_output_config(device: &Device, target_rate: u32) -> Result<(StreamConfig, SampleFormat), String> {
     let mut configs: Vec<_> = device.supported_output_configs().map_err(|err| err.to_string())?.collect();
+    configs.retain(|config| config.channels() > 0);
     configs.sort_by_key(|config| {
         let min = config.min_sample_rate().0;
         let max = config.max_sample_rate().0;
         if min <= target_rate && target_rate <= max { 0 } else { min.abs_diff(target_rate).min(max.abs_diff(target_rate)) }
     });
     let range = configs.into_iter().next().ok_or_else(|| "No supported output config".to_string())?;
+    let sample_format = range.sample_format();
     let selected_rate = if range.min_sample_rate().0 <= target_rate && target_rate <= range.max_sample_rate().0 {
         cpal::SampleRate(target_rate)
     } else {
         range.max_sample_rate()
     };
-    Ok(range.with_sample_rate(selected_rate).config())
+    Ok((range.with_sample_rate(selected_rate).config(), sample_format))
 }
 
 fn run_playback_worker(
     device: Device,
     config: StreamConfig,
+    sample_format: SampleFormat,
     output_channels: usize,
-    receiver: mpsc::Receiver<Vec<i16>>,
+    receiver: mpsc::Receiver<PlaybackPacket>,
     stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let pending = Arc::new(Mutex::new(VecDeque::<i16>::new()));
+    let pending = Arc::new(Mutex::new(VecDeque::<f32>::new()));
     let pending_cb = pending.clone();
     let err_fn = |err| eprintln!("Playback stream error: {err}");
-    let stream = device
-        .build_output_stream(
-            &config,
-            move |data: &mut [f32], _| {
-                if let Ok(mut queue) = pending_cb.lock() {
-                    for frame in data.chunks_mut(output_channels) {
-                        let sample = queue.pop_front().unwrap_or(0) as f32 / i16::MAX as f32;
-                        for out in frame {
-                            *out = sample;
-                        }
-                    }
-                }
-            },
-            err_fn,
-            None,
-        )
-        .map_err(|err| err.to_string())?;
+    let stream = match sample_format {
+        SampleFormat::F32 => build_output_stream::<f32>(&device, &config, output_channels, pending_cb, err_fn),
+        SampleFormat::I16 => build_output_stream::<i16>(&device, &config, output_channels, pending_cb, err_fn),
+        SampleFormat::U16 => build_output_stream::<u16>(&device, &config, output_channels, pending_cb, err_fn),
+        other => Err(format!("Unsupported output sample format: {other:?}")),
+    }?;
     stream.play().map_err(|err| err.to_string())?;
     while !stop.load(Ordering::SeqCst) {
         match receiver.recv_timeout(Duration::from_millis(20)) {
-            Ok(samples) => {
+            Ok(packet) => {
+                let samples = playback_packet_to_output_rate(packet, config.sample_rate.0);
                 if let Ok(mut queue) = pending.lock() {
                     queue.extend(samples);
                     let max_samples = config.sample_rate.0 as usize * 2;
@@ -988,14 +1140,102 @@ fn run_playback_worker(
     Ok(())
 }
 
-fn decode_pcm16_base64(data: &str) -> Result<Vec<i16>, String> {
-    let bytes = BASE64.decode(data).map_err(|err| err.to_string())?;
+trait OutputSample {
+    fn from_f32_sample(sample: f32) -> Self;
+}
+
+impl OutputSample for f32 {
+    fn from_f32_sample(sample: f32) -> Self {
+        sample.clamp(-1.0, 1.0)
+    }
+}
+
+impl OutputSample for i16 {
+    fn from_f32_sample(sample: f32) -> Self {
+        (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+    }
+}
+
+impl OutputSample for u16 {
+    fn from_f32_sample(sample: f32) -> Self {
+        (((sample.clamp(-1.0, 1.0) + 1.0) * 0.5) * u16::MAX as f32) as u16
+    }
+}
+
+fn build_output_stream<T>(
+    device: &Device,
+    config: &StreamConfig,
+    output_channels: usize,
+    pending: Arc<Mutex<VecDeque<f32>>>,
+    err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
+) -> Result<Stream, String>
+where
+    T: OutputSample + cpal::SizedSample + Send + 'static,
+{
+    device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _| {
+                if let Ok(mut queue) = pending.lock() {
+                    for frame in data.chunks_mut(output_channels) {
+                        let sample = queue.pop_front().unwrap_or(0.0);
+                        for out in frame {
+                            *out = T::from_f32_sample(sample);
+                        }
+                    }
+                }
+            },
+            err_fn,
+            None,
+        )
+        .map_err(|err| err.to_string())
+}
+
+fn playback_packet_to_output_rate(packet: PlaybackPacket, output_rate: u32) -> Vec<f32> {
+    let input_rate = packet.sample_rate.max(1);
+    let input: Vec<f32> = packet
+        .samples
+        .into_iter()
+        .map(|sample| sample as f32 / i16::MAX as f32)
+        .collect();
+    if input.is_empty() || input_rate == output_rate {
+        return input;
+    }
+    resample_f32_linear(&input, input_rate, output_rate.max(1))
+}
+
+fn resample_f32_linear(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
+    if input.is_empty() || input_rate == output_rate {
+        return input.to_vec();
+    }
+    if input.len() == 1 {
+        return vec![input[0]];
+    }
+    let output_len = ((input.len() as u64 * output_rate as u64) / input_rate as u64).max(1) as usize;
+    let ratio = input_rate as f64 / output_rate as f64;
+    let mut output = Vec::with_capacity(output_len);
+    for out_idx in 0..output_len {
+        let pos = out_idx as f64 * ratio;
+        let idx = pos.floor() as usize;
+        let frac = (pos - idx as f64) as f32;
+        let a = input.get(idx).copied().unwrap_or(0.0);
+        let b = input.get(idx + 1).copied().unwrap_or(a);
+        output.push((a + (b - a) * frac).clamp(-1.0, 1.0));
+    }
+    output
+}
+
+fn decode_pcm16_bytes(bytes: &[u8]) -> Result<Vec<i16>, String> {
+    if bytes.len() % 2 != 0 {
+        return Err(format!("PCM16 payload has odd byte length: {}", bytes.len()));
+    }
     let mut samples = Vec::with_capacity(bytes.len() / 2);
     for chunk in bytes.chunks_exact(2) {
         samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
     }
     Ok(samples)
 }
+
 
 fn main() {
     let command = std::env::args().nth(1).unwrap_or_else(|| "list-devices".to_string());

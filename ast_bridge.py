@@ -276,6 +276,12 @@ class ChannelStats:
     playback_gap_fills: int = 0
     playback_gap_fill_ms: int = 0
     playback_rejoins: int = 0
+    playback_limiter_events: int = 0
+    playback_limiter_reduction_db: float = 0.0
+    playback_peak_dbfs: float | None = None
+    playback_active_outputs: int = 0
+    playback_output_failures: int = 0
+    playback_failed_outputs: list[str] = field(default_factory=list)
     reconnect_attempts: int = 0
     reconnect_successes: int = 0
     last_disconnect_reason: str = ""
@@ -326,6 +332,12 @@ class ChannelStats:
             "playback_gap_fills": self.playback_gap_fills,
             "playback_gap_fill_ms": self.playback_gap_fill_ms,
             "playback_rejoins": self.playback_rejoins,
+            "playback_limiter_events": self.playback_limiter_events,
+            "playback_limiter_reduction_db": self.playback_limiter_reduction_db,
+            "playback_peak_dbfs": self.playback_peak_dbfs,
+            "playback_active_outputs": self.playback_active_outputs,
+            "playback_output_failures": self.playback_output_failures,
+            "playback_failed_outputs": list(self.playback_failed_outputs),
             "reconnect_attempts": self.reconnect_attempts,
             "reconnect_successes": self.reconnect_successes,
             "last_disconnect_reason": self.last_disconnect_reason,
@@ -365,6 +377,23 @@ def event_name(event_value: int) -> str:
 def float_to_pcm16(samples: np.ndarray) -> bytes:
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767.0).astype(np.int16).tobytes()
+
+
+def apply_playback_limiter(
+    samples: np.ndarray,
+    ceiling: float = 0.98,
+    threshold: float = 0.995,
+) -> tuple[np.ndarray, bool, float, float]:
+    if samples.size == 0:
+        return samples.astype(np.float32, copy=False), False, 0.0, -96.0
+    clean = np.nan_to_num(samples.astype(np.float32, copy=False), nan=0.0, posinf=1.0, neginf=-1.0)
+    peak = float(np.max(np.abs(clean))) if clean.size else 0.0
+    peak_dbfs = float(round(20.0 * np.log10(max(peak, 1e-6)), 1)) if peak > 0.0 else -96.0
+    if peak <= threshold:
+        return np.clip(clean, -1.0, 1.0), False, 0.0, peak_dbfs
+    gain = min(1.0, ceiling / max(peak, 1e-6))
+    reduction_db = float(round(-20.0 * np.log10(max(gain, 1e-6)), 2))
+    return np.clip(clean * gain, -ceiling, ceiling), True, reduction_db, peak_dbfs
 
 
 def make_gap_fill(tail: np.ndarray, sample_rate: int, duration_ms: int) -> np.ndarray:
@@ -998,6 +1027,8 @@ class TranslationChannel:
             })
             for speaker in active_speakers
         ]
+        session_labels = {id(session): active_speakers[index].name for index, session in enumerate(self._native_playback_sessions)}
+        self.stats.playback_active_outputs = len(self._native_playback_sessions)
         self.stats.playback_backend = "native"
         self._emit("status", "Native playback active")
         try:
@@ -1009,8 +1040,23 @@ class TranslationChannel:
                 if chunk is None:
                     break
                 self.stats.playback_queue_depth = self._playback_queue.qsize()
+                native_chunk = self._playback_payload_to_pcm16(chunk)
                 for session in list(self._native_playback_sessions):
-                    session.send_audio(self.settings.channel_id, chunk, self.settings.target_audio_rate)
+                    try:
+                        session.send_audio(self.settings.channel_id, native_chunk, self.settings.target_audio_rate)
+                    except Exception as exc:  # pragma: no cover - hardware dependent
+                        label = session_labels.get(id(session), "native output")
+                        self._mark_playback_output_failed(label, str(exc))
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+                        if session in self._native_playback_sessions:
+                            self._native_playback_sessions.remove(session)
+                        self.stats.playback_active_outputs = len(self._native_playback_sessions)
+                        self._emit("status", f"Native playback output disabled: {label}: {exc}")
+                if not self._native_playback_sessions:
+                    raise RuntimeError("All native playback outputs failed")
                 self._maybe_emit_stats()
         finally:
             for session in self._native_playback_sessions:
@@ -1052,12 +1098,14 @@ class TranslationChannel:
         fanout_slice_frames = max(160, int(self.settings.target_audio_rate * 0.02))
         playback_started = False
         output_queues: list[queue.Queue[np.ndarray | None]] = [queue.Queue(maxsize=96) for _ in active_speakers]
+        output_labels = list(output_names)
         output_threads: list[threading.Thread] = []
-        output_errors: queue.Queue[str] = queue.Queue()
+        output_errors: queue.Queue[dict[str, str]] = queue.Queue()
+        self.stats.playback_active_outputs = len(output_queues)
 
         try:
             for index, speaker in enumerate(active_speakers):
-                label = output_names[index] if index < len(output_names) else speaker.name
+                label = output_labels[index] if index < len(output_labels) else speaker.name
                 worker = threading.Thread(
                     target=self._play_output_device,
                     args=(speaker, output_queues[index], fanout_slice_frames, label, output_errors),
@@ -1070,9 +1118,7 @@ class TranslationChannel:
                 try:
                     chunk = self._playback_queue.get(timeout=0.2)
                 except queue.Empty:
-                    output_error = self._next_output_error(output_errors)
-                    if output_error:
-                        raise RuntimeError(output_error)
+                    self._drain_output_errors(output_errors, output_queues, output_labels, fail_when_all=True)
                     if self._stop_requested.is_set():
                         break
                     if playback_started and not pending and self._playback_tail.size and gap_fill_budget_ms < max_gap_fill_ms:
@@ -1090,9 +1136,7 @@ class TranslationChannel:
                     continue
 
                 if chunk is None:
-                    output_error = self._next_output_error(output_errors)
-                    if output_error:
-                        raise RuntimeError(output_error)
+                    self._drain_output_errors(output_errors, output_queues, output_labels, fail_when_all=False)
                     break
 
                 pending.extend(chunk)
@@ -1117,9 +1161,7 @@ class TranslationChannel:
                     self._last_playback_emit_at = time.time()
                     frame = samples.reshape(-1, 1)
                     self._play_frame_to_outputs(output_queues, frame, fanout_slice_frames)
-                output_error = self._next_output_error(output_errors)
-                if output_error:
-                    raise RuntimeError(output_error)
+                self._drain_output_errors(output_errors, output_queues, output_labels, fail_when_all=True)
                 self._maybe_emit_stats()
         except Exception as exc:  # pragma: no cover - hardware dependent
             self.stats.last_error = str(exc)
@@ -1127,7 +1169,8 @@ class TranslationChannel:
             self.stop()
         finally:
             for output_queue in output_queues:
-                self._enqueue(output_queue, None)
+                if output_queue is not None:
+                    self._enqueue(output_queue, None)
             for worker in output_threads:
                 worker.join(timeout=1.0)
 
@@ -1137,7 +1180,7 @@ class TranslationChannel:
         frame_queue: queue.Queue[np.ndarray | None],
         blocksize: int,
         label: str,
-        error_queue: queue.Queue[str],
+        error_queue: queue.Queue[dict[str, str]],
     ) -> None:
         boost_current_thread_priority()
         try:
@@ -1158,18 +1201,45 @@ class TranslationChannel:
                     if frame.size:
                         player.play(frame)
         except Exception as exc:  # pragma: no cover - hardware dependent
-            error_queue.put_nowait(f"{label}: {exc}")
-            self._enqueue(self._playback_queue, None)
+            error_queue.put_nowait({"label": label, "error": str(exc)})
 
-    def _next_output_error(self, error_queue: queue.Queue[str]) -> str:
-        try:
-            return error_queue.get_nowait()
-        except queue.Empty:
-            return ""
+    def _mark_playback_output_failed(self, label: str, message: str) -> None:
+        entry = f"{label}: {message}"
+        self.stats.playback_output_failures += 1
+        if entry not in self.stats.playback_failed_outputs:
+            self.stats.playback_failed_outputs.append(entry)
+        self.stats.last_error = f"Playback output failed: {entry}"
+
+    def _drain_output_errors(
+        self,
+        error_queue: queue.Queue[dict[str, str]],
+        output_queues: list[queue.Queue[np.ndarray | None] | None],
+        output_labels: list[str],
+        fail_when_all: bool,
+    ) -> None:
+        drained = False
+        while True:
+            try:
+                error = error_queue.get_nowait()
+            except queue.Empty:
+                break
+            drained = True
+            label = str(error.get("label") or "output")
+            message = str(error.get("error") or "playback output failed")
+            self._mark_playback_output_failed(label, message)
+            for index, existing_label in enumerate(output_labels):
+                if existing_label == label and index < len(output_queues):
+                    output_queues[index] = None
+            self.stats.playback_active_outputs = sum(1 for item in output_queues if item is not None)
+            self._emit("status", f"Playback output disabled: {label}: {message}")
+        if drained:
+            self._maybe_emit_stats(force=True)
+        if fail_when_all and output_queues and not any(item is not None for item in output_queues):
+            raise RuntimeError("All playback outputs failed")
 
     def _play_frame_to_outputs(
         self,
-        output_queues: list[queue.Queue[np.ndarray | None]],
+        output_queues: list[queue.Queue[np.ndarray | None] | None],
         frame: np.ndarray,
         slice_frames: int,
     ) -> None:
@@ -1179,6 +1249,8 @@ class TranslationChannel:
         for start in range(0, frame.shape[0], step):
             chunk = np.ascontiguousarray(frame[start : start + step], dtype=np.float32)
             for output_queue in output_queues:
+                if output_queue is None:
+                    continue
                 if not self._enqueue_audio_output(output_queue, chunk):
                     return
 
@@ -1545,6 +1617,7 @@ class TranslationChannel:
             pass
 
     def _enqueue_playback_audio(self, payload: bytes) -> bool:
+        payload = self._limit_playback_payload(payload)
         while not self._stop_requested.is_set():
             try:
                 self._playback_queue.put(payload, timeout=0.2)
@@ -1553,6 +1626,43 @@ class TranslationChannel:
             except queue.Full:
                 continue
         return False
+
+    def _limit_playback_payload(self, payload: bytes) -> bytes:
+        if not payload:
+            return payload
+        frame_bytes = 2 if self.settings.use_local_tts else self._remote_pcm_bytes_per_sample()
+        usable = len(payload) - (len(payload) % frame_bytes)
+        if usable <= 0:
+            return payload
+        raw = payload[:usable]
+        tail = payload[usable:]
+        if frame_bytes == 4:
+            samples = np.frombuffer(raw, dtype=np.float32)
+            limited, engaged, reduction_db, peak_dbfs = apply_playback_limiter(samples)
+            encoded = limited.astype(np.float32).tobytes()
+        else:
+            samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            limited, engaged, reduction_db, peak_dbfs = apply_playback_limiter(samples)
+            encoded = float_to_pcm16(limited)
+
+        self.stats.playback_peak_dbfs = peak_dbfs
+        if engaged:
+            self.stats.playback_limiter_events += 1
+            self.stats.playback_limiter_reduction_db = reduction_db
+        return encoded + tail
+
+    def _playback_payload_to_pcm16(self, payload: bytes) -> bytes:
+        if not payload:
+            return payload
+        if self.settings.use_local_tts or self._remote_pcm_bytes_per_sample() == 2:
+            usable = len(payload) - (len(payload) % 2)
+            return payload[:usable]
+        frame_bytes = 4
+        usable = len(payload) - (len(payload) % frame_bytes)
+        if usable <= 0:
+            return b""
+        samples = np.frombuffer(payload[:usable], dtype=np.float32)
+        return float_to_pcm16(samples)
 
     def _raw_audio_bytes_for_ms(self, duration_ms: int, sample_rate: int) -> int:
         if self.settings.use_local_tts:

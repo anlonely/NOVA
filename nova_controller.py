@@ -167,7 +167,7 @@ SCENE_TEMPLATES: dict[str, dict[str, Any]] = {
         "game_inbound": {
             "source_language": "en",
             "target_language": "zh",
-            "performance_profile": "balanced",
+            "performance_profile": "turbo",
             "subtitle_mode": "bilingual",
         },
     },
@@ -211,7 +211,7 @@ SCENE_TEMPLATES: dict[str, dict[str, Any]] = {
         "game_inbound": {
             "source_language": "en",
             "target_language": "zh",
-            "performance_profile": "studio",
+            "performance_profile": "turbo",
             "subtitle_mode": "bilingual",
         },
     },
@@ -921,6 +921,10 @@ class NovaController:
         self.native_audio_snapshot: dict[str, Any] = self.native_audio_core.enumerate_devices() or {}
         self.native_audio_health: dict[str, Any] = self.native_audio_core.health() if self.native_audio_core.available else {"ok": False}
         self.native_audio_health_checked_at = time.time()
+        self.native_audio_last_device_change: dict[str, Any] | None = None
+        self.native_audio_degraded_reason = ""
+        self.native_audio_affected_channels: list[dict[str, Any]] = []
+        self.native_audio_recovered_routes: list[dict[str, Any]] = []
         self.update_snapshot: dict[str, Any] = {
             "current": dict(self.updater.current),
             "lastCheck": None,
@@ -986,6 +990,7 @@ class NovaController:
             "audio-adaptive-chunking": "1",
             "audio-playback-backend": "python",
             "audio-auto-profile": "1",
+            "audio-device-auto-recover": "0",
             "voice-clone-speaker-id": PRIMARY_VOICE_CLONE_SPEAKER,
             "voice-clone-sample-path": "",
             "voice-clone-reference-text": "",
@@ -1050,11 +1055,11 @@ class NovaController:
             "c-source": "en",
             "c-target": "zh",
             "c-speaker": "",
-            "c-profile": "balanced",
+            "c-profile": "turbo",
             "c-subtitle": "bilingual",
-            "c-startup-buffer": "36",
-            "c-noise-gate": "-50",
-            "c-hold-ms": "220",
+            "c-startup-buffer": "16",
+            "c-noise-gate": "-46",
+            "c-hold-ms": "140",
             "c-skip-silence": "1",
             "c-enable-agc": "1",
             "c-agc-target": "-18",
@@ -1108,6 +1113,7 @@ class NovaController:
         self.values["audio-adaptive-chunking"] = "1" if audio_core.get("adaptive_chunking", self.values["audio-adaptive-chunking"] == "1") else "0"
         self.values["audio-playback-backend"] = str(audio_core.get("playback_backend", self.values["audio-playback-backend"]) or "python")
         self.values["audio-auto-profile"] = "1" if audio_core.get("auto_profile", self.values["audio-auto-profile"] == "1") else "0"
+        self.values["audio-device-auto-recover"] = "1" if audio_core.get("device_auto_recover", self.values["audio-device-auto-recover"] == "1") else "0"
 
         voice_clone = data.get("voice_clone", {})
         self.values["voice-clone-speaker-id"] = str(voice_clone.get("speaker_id", self.values["voice-clone-speaker-id"]) or "")
@@ -1339,6 +1345,9 @@ class NovaController:
             if self.values.get(toggle_key) not in {"0", "1"}:
                 self.values[toggle_key] = "1"
                 changed = True
+        if self.values.get("audio-device-auto-recover") not in {"0", "1"}:
+            self.values["audio-device-auto-recover"] = "0"
+            changed = True
 
         if self.values.get("audio-auto-profile") == "1":
             self._auto_tune_audio_profile()
@@ -1426,6 +1435,9 @@ class NovaController:
         self.native_audio_snapshot = self.native_audio_core.enumerate_devices() or {}
         self.native_audio_health = self.native_audio_core.health() if self.native_audio_core.available else {"ok": False}
         self.native_audio_health_checked_at = time.time()
+        self.native_audio_degraded_reason = ""
+        self.native_audio_affected_channels = []
+        self.native_audio_recovered_routes = []
         if preserve_selection:
             for alias in CHANNEL_ALIASES:
                 self.values[f"{alias}-input"] = self._resolve_selection(previous[f"{alias}-input"], self.catalog.microphones, f"{alias}-input")
@@ -1447,6 +1459,162 @@ class NovaController:
                 self.values[f"{alias}-monitor-output"] = self.catalog.default_speaker_id()
             self.values["voice-clone-record-device"] = self.catalog.default_microphone_id()
         return self.get_state()
+
+    def _drain_native_audio_events(self) -> None:
+        try:
+            events = self.native_audio_core.drain_events()
+        except Exception:
+            return
+        for event in events:
+            event_name = event.get("event")
+            if event_name == "devices_changed":
+                snapshot = event.get("snapshot") if isinstance(event.get("snapshot"), dict) else {}
+                self.native_audio_snapshot = snapshot
+                previous_microphones = dict(self.catalog.microphones)
+                previous_speakers = dict(self.catalog.speakers)
+                try:
+                    self.catalog.refresh()
+                except Exception as exc:
+                    self.native_audio_degraded_reason = f"Native devices changed, but Python device refresh failed: {exc}"
+                previous_count = int(event.get("previous_device_count") or 0)
+                device_count = int(event.get("device_count") or 0)
+                self.native_audio_last_device_change = {
+                    "timestamp": time.time(),
+                    "previousDeviceCount": previous_count,
+                    "deviceCount": device_count,
+                }
+                if self.values.get("audio-device-auto-recover") == "1":
+                    self.native_audio_recovered_routes = self._recover_missing_channel_devices(previous_microphones, previous_speakers)
+                else:
+                    self.native_audio_recovered_routes = []
+                self.native_audio_affected_channels = self._detect_channel_device_issues()
+                if self.native_audio_affected_channels:
+                    labels = ", ".join(item.get("label", item.get("alias", "")) for item in self.native_audio_affected_channels)
+                    self.native_audio_degraded_reason = f"Audio devices changed ({previous_count} -> {device_count}); affected channels: {labels}."
+                elif self._recovered_routes_need_restart():
+                    labels = ", ".join(item.get("label", item.get("alias", "")) for item in self.native_audio_recovered_routes)
+                    self.native_audio_degraded_reason = (
+                        f"Audio devices changed ({previous_count} -> {device_count}); "
+                        f"recovered routes for running channels: {labels}. Restart affected channels to apply."
+                    )
+                elif not self.native_audio_degraded_reason:
+                    self.native_audio_degraded_reason = (
+                        f"Native audio devices changed ({previous_count} -> {device_count}). "
+                        "No active channel device bindings are missing."
+                    )
+            elif event_name == "error" and not event.get("channel"):
+                self.native_audio_degraded_reason = str(event.get("message") or "Native audio core error")
+
+    def _detect_channel_device_issues(self) -> list[dict[str, Any]]:
+        affected: list[dict[str, Any]] = []
+        device_error_prefix = "Audio device unavailable:"
+        for alias in CHANNEL_ALIASES:
+            channel_id = CHANNEL_MAP[alias]
+            issues: list[dict[str, str]] = []
+            if self.values.get(f"{alias}-enabled") == "1" and self.values.get(f"{alias}-input-enabled") == "1":
+                input_id = self.values.get(f"{alias}-input", "")
+                if input_id and input_id not in self.catalog.microphones:
+                    issues.append({"kind": "input", "deviceId": input_id})
+            if self.values.get(f"{alias}-enabled") == "1" and self.values.get(f"{alias}-output-enabled") == "1":
+                output_id = self.values.get(f"{alias}-output", "")
+                if output_id and output_id not in self.catalog.speakers:
+                    issues.append({"kind": "output", "deviceId": output_id})
+            if self.values.get(f"{alias}-enabled") == "1" and self.values.get(f"{alias}-monitor-enabled") == "1":
+                monitor_id = self.values.get(f"{alias}-monitor-output", "")
+                if monitor_id and monitor_id not in self.catalog.speakers:
+                    issues.append({"kind": "monitor", "deviceId": monitor_id})
+
+            if issues:
+                message = f"{device_error_prefix} " + ", ".join(f"{item['kind']}={item['deviceId']}" for item in issues)
+                self.channel_status[channel_id] = "Device Degraded"
+                self.last_error[channel_id] = message
+                affected.append(
+                    {
+                        "alias": alias,
+                        "channelId": channel_id,
+                        "label": CHANNEL_TITLE_MAP[alias],
+                        "issues": issues,
+                    }
+                )
+            elif self.last_error.get(channel_id, "").startswith(device_error_prefix):
+                self.last_error[channel_id] = ""
+                if channel_id in self.channels:
+                    self.channel_status[channel_id] = "Running"
+        return affected
+
+    def _match_replacement_device(self, old_ref: object | None, mapping: dict[str, object]) -> str:
+        old_name = str(getattr(old_ref, "name", "") or "").strip().casefold()
+        if not old_name:
+            return ""
+        for device_id, ref in mapping.items():
+            if str(getattr(ref, "name", "") or "").strip().casefold() == old_name:
+                return device_id
+        return ""
+
+    def _device_recovery_candidate(
+        self,
+        alias: str,
+        kind: str,
+        old_device_id: str,
+        previous_mapping: dict[str, object],
+        current_mapping: dict[str, object],
+    ) -> tuple[str, str]:
+        replacement = self._match_replacement_device(previous_mapping.get(old_device_id), current_mapping)
+        if replacement:
+            return replacement, "name"
+        if kind == "input":
+            return self._fallback_input_device(alias), "fallback"
+        if kind == "output":
+            return self._fallback_output_device(alias), "fallback"
+        return self.catalog.default_speaker_id(), "fallback"
+
+    def _recover_missing_channel_devices(
+        self,
+        previous_microphones: dict[str, object],
+        previous_speakers: dict[str, object],
+    ) -> list[dict[str, Any]]:
+        recovered: list[dict[str, Any]] = []
+        for alias in CHANNEL_ALIASES:
+            if self.values.get(f"{alias}-enabled") != "1":
+                continue
+            recovery_targets = (
+                ("input", f"{alias}-input", f"{alias}-input-enabled", previous_microphones, self.catalog.microphones),
+                ("output", f"{alias}-output", f"{alias}-output-enabled", previous_speakers, self.catalog.speakers),
+                ("monitor", f"{alias}-monitor-output", f"{alias}-monitor-enabled", previous_speakers, self.catalog.speakers),
+            )
+            for kind, value_key, enabled_key, previous_mapping, current_mapping in recovery_targets:
+                old_device_id = self.values.get(value_key, "")
+                if self.values.get(enabled_key) != "1" or not old_device_id or old_device_id in current_mapping:
+                    continue
+                new_device_id, strategy = self._device_recovery_candidate(alias, kind, old_device_id, previous_mapping, current_mapping)
+                if not new_device_id or new_device_id not in current_mapping:
+                    continue
+                self.values[value_key] = new_device_id
+                old_ref = previous_mapping.get(old_device_id)
+                new_ref = current_mapping.get(new_device_id)
+                recovered.append(
+                    {
+                        "alias": alias,
+                        "channelId": CHANNEL_MAP[alias],
+                        "label": CHANNEL_TITLE_MAP[alias],
+                        "kind": kind,
+                        "oldDeviceId": old_device_id,
+                        "oldDeviceName": str(getattr(old_ref, "name", "") or old_device_id),
+                        "newDeviceId": new_device_id,
+                        "newDeviceName": str(getattr(new_ref, "name", "") or new_device_id),
+                        "strategy": strategy,
+                    }
+                )
+
+        running_channels = {channel_id for channel_id in self.channels}
+        for channel_id in {item["channelId"] for item in recovered if item["channelId"] in running_channels}:
+            kinds = ", ".join(item["kind"] for item in recovered if item["channelId"] == channel_id)
+            self.channel_status[channel_id] = "Route Recovered"
+            self.last_error[channel_id] = f"Audio route recovered: {kinds}. Restart this channel to apply the new device binding."
+        return recovered
+
+    def _recovered_routes_need_restart(self) -> bool:
+        return any(item.get("channelId") in self.channels for item in self.native_audio_recovered_routes)
 
     def _first_key(self, mapping: dict[str, object]) -> str:
         return next(iter(mapping.keys()), "")
@@ -1641,9 +1809,18 @@ class NovaController:
 
         credentials = payload.get("credentials", {})
         if credentials:
-            self.credentials["appId"] = str(credentials.get("appId", self.credentials["appId"]) or "")
-            self.credentials["accessToken"] = str(credentials.get("accessToken", self.credentials["accessToken"]) or "")
-            self.credentials["secretKey"] = str(credentials.get("secretKey", self.credentials["secretKey"]) or "")
+            app_id = credentials.get("appId")
+            if app_id is not None and not self._looks_redacted(app_id):
+                self.credentials["appId"] = str(app_id or "")
+
+            access_token = credentials.get("accessToken")
+            if access_token is not None and not self._looks_redacted(access_token):
+                self.credentials["accessToken"] = str(access_token or "")
+
+            secret_key = credentials.get("secretKey")
+            if secret_key is not None and not self._looks_redacted(secret_key):
+                self.credentials["secretKey"] = str(secret_key or "")
+
             resource_id = str(credentials.get("resourceId", self.credentials["resourceId"]) or "").strip()
             self.credentials["resourceId"] = resource_id or DEFAULT_RESOURCE_ID
 
@@ -1735,6 +1912,7 @@ class NovaController:
                 "adaptive_chunking": self.values["audio-adaptive-chunking"] == "1",
                 "playback_backend": self.values["audio-playback-backend"],
                 "auto_profile": self.values["audio-auto-profile"] == "1",
+                "device_auto_recover": self.values["audio-device-auto-recover"] == "1",
             },
             "channels": {
                 "outbound": self._channel_config("a"),
@@ -1937,15 +2115,29 @@ class NovaController:
         return {"ok": True, "state": self.get_state()}
 
     def export_session(self) -> dict[str, Any]:
+        self._drain_native_audio_events()
         self._drain_events()
         OUTPUT_DIR.mkdir(exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        output_path = OUTPUT_DIR / f"session-{timestamp}.json"
+        output_path = OUTPUT_DIR / f"diagnostic-session-{timestamp}.json"
         payload = {
             "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "schema": "nova-diagnostic-session-v2",
+            "version": dict(self.updater.current),
             "scene": self.scene_id,
             "domain_preset": self.values["domain-preset"],
-            "values": self.values,
+            "credentials": self._redacted_credentials(),
+            "values": self._redacted_values(),
+            "network": {
+                "dns_servers": list(parse_dns_servers(self.values["network-dns-servers"])),
+                "dns_hosts": list(parse_dns_hosts(self.values["network-dns-hosts"])),
+            },
+            "devices": self._device_diagnostics(),
+            "nativeAudioCore": self._native_audio_state(),
+            "voiceClone": self._voice_clone_state(),
+            "updater": self._updater_state(),
+            "runtime": self._runtime_snapshot(),
+            "logs": self._recent_log_diagnostics(),
             "channels": {
                 "outbound": {
                     "settings": asdict(self._build_channel_settings("a")),
@@ -1967,7 +2159,69 @@ class NovaController:
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "path": str(output_path), "name": output_path.name}
 
+    def _redact_secret(self, value: str) -> str:
+        value = str(value or "")
+        if not value:
+            return ""
+        if len(value) <= 8:
+            return "***"
+        return f"{value[:3]}***{value[-3:]}"
+
+    def _looks_redacted(self, value: Any) -> bool:
+        value = str(value or "")
+        if not value:
+            return False
+        if value == "***":
+            return True
+        if len(value) <= 8:
+            return False
+        masked = value[3:-3]
+        return "*" not in value[:3] and "*" not in value[-3:] and set(masked) == {"*"} and len(masked) >= 3
+
+    def _redacted_credentials(self) -> dict[str, str]:
+        return {
+            "appId": self._redact_secret(self.credentials.get("appId", "")),
+            "accessToken": self._redact_secret(self.credentials.get("accessToken", "")),
+            "secretKey": self._redact_secret(self.credentials.get("secretKey", "")),
+            "resourceId": self.credentials.get("resourceId", DEFAULT_RESOURCE_ID) or DEFAULT_RESOURCE_ID,
+        }
+
+    def _redacted_values(self) -> dict[str, str]:
+        redacted = dict(self.values)
+        for key in ("voice-clone-sample-path",):
+            if redacted.get(key):
+                redacted[key] = str(Path(redacted[key]).name)
+        return redacted
+
+    def _device_diagnostics(self) -> dict[str, Any]:
+        return {
+            "inputs": [asdict(item) for item in self.catalog.microphone_options()],
+            "outputs": [asdict(item) for item in self.catalog.speaker_options()],
+        }
+
+    def _recent_log_diagnostics(self, limit: int = 5, tail_bytes: int = 8192) -> list[dict[str, Any]]:
+        log_dir = OUTPUT_DIR / "logs"
+        if not log_dir.exists():
+            return []
+        logs: list[dict[str, Any]] = []
+        for path in sorted(log_dir.glob("*.log"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+            try:
+                raw = path.read_bytes()[-tail_bytes:]
+                text = raw.decode("utf-8", errors="replace")
+                logs.append(
+                    {
+                        "name": path.name,
+                        "size": path.stat().st_size,
+                        "modified": path.stat().st_mtime,
+                        "tail": text,
+                    }
+                )
+            except Exception as exc:
+                logs.append({"name": path.name, "error": str(exc)})
+        return logs
+
     def get_state(self) -> dict[str, Any]:
+        self._drain_native_audio_events()
         self._drain_events()
         domain = DOMAIN_PACKS.get(self.values["domain-preset"], DOMAIN_PACKS["generic"])
         return {
@@ -2024,8 +2278,10 @@ class NovaController:
         }
 
     def poll_state(self) -> dict[str, Any]:
+        self._drain_native_audio_events()
         self._drain_events()
         return {
+            "nativeAudioCore": self._native_audio_state(),
             "voiceClone": self._voice_clone_state(),
             "updater": self._updater_state(),
             "transcripts": {
@@ -2049,10 +2305,16 @@ class NovaController:
             self.native_audio_health_checked_at = time.time()
         health = self.native_audio_health if self.native_audio_core.available else {"ok": False}
         runtime = "native" if capture_backend == "native" and health.get("ok") else "python"
+        degraded_reason = self.native_audio_degraded_reason
+        if capture_backend == "native" and not health.get("ok"):
+            degraded_reason = degraded_reason or str(health.get("error") or "Native audio core is not healthy.")
         return {
             "available": self.native_audio_core.available,
             "enumerated": bool(self.native_audio_snapshot),
             "runtime": runtime,
+            "degraded": bool(degraded_reason),
+            "degradedReason": degraded_reason,
+            "affectedChannels": self.native_audio_affected_channels,
             "captureBackend": capture_backend,
             "fallbackEnabled": self.values.get("audio-native-fallback", "1") == "1",
             "preRollMs": max(0, min(safe_int(self.values.get("audio-pre-roll-ms"), 160), 600)),
@@ -2062,9 +2324,12 @@ class NovaController:
             "adaptiveChunking": self.values.get("audio-adaptive-chunking", "1") == "1",
             "playbackBackend": self.values.get("audio-playback-backend", "python"),
             "autoProfile": self.values.get("audio-auto-profile", "1") == "1",
+            "deviceAutoRecover": self.values.get("audio-device-auto-recover", "0") == "1",
+            "recoveredRoutes": self.native_audio_recovered_routes,
             "health": health,
             "binaryPath": str(self.native_audio_core.binary_path),
             "deviceCount": len(native_devices),
+            "lastDeviceChange": self.native_audio_last_device_change,
             "lastSnapshot": self.native_audio_snapshot,
         }
 

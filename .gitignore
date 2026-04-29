@@ -4,6 +4,7 @@
 .downloads/
 .tmp_pkgs/
 .venv/
+.pytest_cache/
 __pycache__/
 build/
 config.local.json

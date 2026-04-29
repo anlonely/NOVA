@@ -149,6 +149,7 @@
                 <span class="diag-chip accent-blue" id="aLatencyChip">72 ms audio</span>
                 <span class="diag-chip" id="aQueueChip">Queue 02</span>
               </div>
+              <button class="action-button secondary channel-popup-button" id="openPopupAButton" type="button" data-i18n="button.popupOpen">Open Popup</button>
               <button class="action-button secondary channel-tools-button" id="aChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
             </div>
           </div>
@@ -391,6 +392,7 @@
                 <span class="diag-chip accent-green" id="bLatencyChip">68 ms audio</span>
                 <span class="diag-chip" id="bQueueChip">Queue 01</span>
               </div>
+              <button class="action-button secondary channel-popup-button" id="openPopupBButton" type="button" data-i18n="button.popupOpen">Open Popup</button>
               <button class="action-button secondary channel-tools-button" id="bChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
             </div>
           </div>
@@ -480,6 +482,7 @@
                 <span class="diag-chip accent-amber" id="cLatencyChip">94 ms audio</span>
                 <span class="diag-chip" id="cQueueChip">Queue 00</span>
               </div>
+              <button class="action-button secondary channel-popup-button" id="openPopupCButton" type="button" data-i18n="button.popupOpen">Open Popup</button>
               <button class="action-button secondary channel-tools-button" id="cChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
             </div>
           </div>
@@ -508,7 +511,15 @@
                 <p class="eyebrow" data-i18n="pane.aEyebrow">Channel A Feed</p>
                 <h3 id="paneATitle">Speaker A to Remote</h3>
               </div>
-              <span class="status-pill accent-blue" id="paneAStatus">Idle</span>
+              <div class="pane-header-actions">
+                <button class="action-button secondary compact-text-button pane-popup-open-button" id="openPopupAPaneButton" type="button" data-i18n="button.popupOpen"></button>
+                <span class="status-pill accent-blue" id="paneAStatus">Idle</span>
+                <button class="icon-button ghost pane-popup-pin-button" id="pinPopupAPaneButton" type="button" aria-label="Pin popup">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div class="live-preview" id="livePreviewA">
               <div class="entry-source" id="livePreviewASource"></div>
@@ -523,7 +534,15 @@
                 <p class="eyebrow" data-i18n="pane.bEyebrow">Channel B Feed</p>
                 <h3 id="paneBTitle">Remote to Speaker A</h3>
               </div>
-              <span class="status-pill accent-green" id="paneBStatus">Idle</span>
+              <div class="pane-header-actions">
+                <button class="action-button secondary compact-text-button pane-popup-open-button" id="openPopupBPaneButton" type="button" data-i18n="button.popupOpen"></button>
+                <span class="status-pill accent-green" id="paneBStatus">Idle</span>
+                <button class="icon-button ghost pane-popup-pin-button" id="pinPopupBPaneButton" type="button" aria-label="Pin popup">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div class="live-preview" id="livePreviewB">
               <div class="entry-source" id="livePreviewBSource"></div>
@@ -538,7 +557,15 @@
                 <p class="eyebrow" data-i18n="pane.cEyebrow">Channel C Feed</p>
                 <h3 id="paneCTitle">Game Voice to You</h3>
               </div>
-              <span class="status-pill accent-amber" id="paneCStatus">Idle</span>
+              <div class="pane-header-actions">
+                <button class="action-button secondary compact-text-button pane-popup-open-button" id="openPopupCPaneButton" type="button" data-i18n="button.popupOpen"></button>
+                <span class="status-pill accent-amber" id="paneCStatus">Idle</span>
+                <button class="icon-button ghost pane-popup-pin-button" id="pinPopupCPaneButton" type="button" aria-label="Pin popup">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
             <div class="live-preview" id="livePreviewC">
               <div class="entry-source" id="livePreviewCSource"></div>
@@ -619,6 +646,10 @@
           <label class="channel-mini-toggle">
             <input id="audioAutoProfileInput" type="checkbox">
             <span data-i18n="platform.autoProfile">Auto performance profile</span>
+          </label>
+          <label class="channel-mini-toggle">
+            <input id="audioDeviceAutoRecoverInput" type="checkbox">
+            <span data-i18n="platform.deviceAutoRecover">Auto recover device routing</span>
           </label>
 
           <label class="credential-field">
@@ -1171,6 +1202,88 @@
         </section>
       </div>
     </aside>
+
+    <article class="transcript-popup" id="transcriptPopupA" aria-label="Channel A Popup">
+      <header class="transcript-popup-header" id="transcriptPopupHeaderA">
+        <div>
+          <p class="eyebrow">Channel A</p>
+          <h3 id="transcriptPopupTitleA">Channel A Live Translation</h3>
+        </div>
+        <div class="transcript-popup-actions">
+          <span class="status-pill accent-blue" id="transcriptPopupStatusA">Idle</span>
+          <button class="icon-button ghost transcript-popup-pin-button" id="pinPopupAButton" type="button" aria-label="Pin popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+            </svg>
+          </button>
+          <button class="icon-button ghost transcript-popup-close-button" id="closePopupAButton" type="button" aria-label="Close popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div class="live-preview" id="popupLivePreviewA">
+        <div class="entry-source" id="popupLivePreviewASource"></div>
+        <div class="entry-target" id="popupLivePreviewATarget"></div>
+      </div>
+      <div class="transcript-scroll popup-transcript-scroll" id="popupTranscriptA"></div>
+    </article>
+
+    <article class="transcript-popup" id="transcriptPopupB" aria-label="Channel B Popup">
+      <header class="transcript-popup-header" id="transcriptPopupHeaderB">
+        <div>
+          <p class="eyebrow">Channel B</p>
+          <h3 id="transcriptPopupTitleB">Channel B Live Translation</h3>
+        </div>
+        <div class="transcript-popup-actions">
+          <span class="status-pill accent-green" id="transcriptPopupStatusB">Idle</span>
+          <button class="icon-button ghost transcript-popup-pin-button" id="pinPopupBButton" type="button" aria-label="Pin popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+            </svg>
+          </button>
+          <button class="icon-button ghost transcript-popup-close-button" id="closePopupBButton" type="button" aria-label="Close popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div class="live-preview" id="popupLivePreviewB">
+        <div class="entry-source" id="popupLivePreviewBSource"></div>
+        <div class="entry-target" id="popupLivePreviewBTarget"></div>
+      </div>
+      <div class="transcript-scroll popup-transcript-scroll" id="popupTranscriptB"></div>
+    </article>
+
+    <article class="transcript-popup" id="transcriptPopupC" aria-label="Channel C Popup">
+      <header class="transcript-popup-header" id="transcriptPopupHeaderC">
+        <div>
+          <p class="eyebrow">Channel C</p>
+          <h3 id="transcriptPopupTitleC">Channel C Live Translation</h3>
+        </div>
+        <div class="transcript-popup-actions">
+          <span class="status-pill accent-amber" id="transcriptPopupStatusC">Idle</span>
+          <button class="icon-button ghost transcript-popup-pin-button" id="pinPopupCButton" type="button" aria-label="Pin popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
+            </svg>
+          </button>
+          <button class="icon-button ghost transcript-popup-close-button" id="closePopupCButton" type="button" aria-label="Close popup">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div class="live-preview" id="popupLivePreviewC">
+        <div class="entry-source" id="popupLivePreviewCSource"></div>
+        <div class="entry-target" id="popupLivePreviewCTarget"></div>
+      </div>
+      <div class="transcript-scroll popup-transcript-scroll" id="popupTranscriptC"></div>
+    </article>
+
   </div>
 
   <script src="./dashboard_state.js"></script>

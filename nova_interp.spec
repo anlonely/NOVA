@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import json
 from pathlib import Path
 import sys
 
@@ -7,8 +8,10 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH)
+app_version = json.loads((project_root / "app_version.json").read_text(encoding="utf-8")).get("version", "0.0.0")
 datas = [
     (str(project_root / "web_dashboard"), "web_dashboard"),
+    (str(project_root / "assets"), "assets"),
     (str(project_root / "config.example.json"), "."),
     (str(project_root / "app_version.json"), "."),
 ]
@@ -74,8 +77,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "NOVA INTERP",
             "CFBundleDisplayName": "NOVA INTERP",
-            "CFBundleShortVersionString": "0.5.0",
-            "CFBundleVersion": "0.5.0",
+            "CFBundleShortVersionString": str(app_version),
+            "CFBundleVersion": str(app_version),
             "NSHighResolutionCapable": True,
             "NSMicrophoneUsageDescription": "NOVA INTERP needs microphone access for real-time interpreting.",
         },

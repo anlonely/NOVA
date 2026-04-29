@@ -38,7 +38,8 @@
     "enable_noise_floor": true,
     "adaptive_chunking": true,
     "playback_backend": "python",
-    "auto_profile": true
+    "auto_profile": true,
+    "device_auto_recover": false
   },
   "channels": {
     "outbound": {
@@ -112,7 +113,7 @@
       "source_language": "en",
       "target_language": "zh",
       "speaker_id": "",
-      "performance_profile": "balanced",
+      "performance_profile": "turbo",
       "chunk_ms": 60,
       "jitter_buffer_ms": 75,
       "startup_buffer_ms": 36,

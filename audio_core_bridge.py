@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import queue
@@ -8,7 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from paths import get_resource_root
 
@@ -19,6 +20,9 @@ NATIVE_CORE_DEBUG_EXE = ROOT / "native_audio_core" / "target" / "debug" / NATIVE
 
 
 class NativeAudioCoreBridge:
+    _services: dict[Path, NativeAudioCoreService] = {}
+    _services_lock = threading.Lock()
+
     def __init__(self, binary_path: Path | None = None) -> None:
         self.binary_path = binary_path or (NATIVE_CORE_EXE if NATIVE_CORE_EXE.exists() else NATIVE_CORE_DEBUG_EXE)
 
@@ -65,69 +69,260 @@ class NativeAudioCoreBridge:
             return {"ok": False, "error": str(exc), "binaryPath": str(self.binary_path)}
 
     def start_capture(self, config: dict[str, Any]) -> NativeCaptureSession:
-        session = NativeCaptureSession(self.binary_path)
+        service = self._service()
+        session = NativeCaptureSession(service, str(config.get("channel") or "capture"))
         session.start(config)
         return session
 
     def start_playback(self, config: dict[str, Any]) -> NativePlaybackSession:
-        session = NativePlaybackSession(self.binary_path)
+        service = self._service()
+        session = NativePlaybackSession(service, str(config.get("channel") or "playback"))
         session.start(config)
         return session
 
+    def _service(self) -> NativeAudioCoreService:
+        if not self.binary_path.exists():
+            raise RuntimeError(f"Native audio core binary is missing: {self.binary_path}")
+        key = self.binary_path.resolve()
+        with self._services_lock:
+            service = self._services.get(key)
+            if service is None or not service.is_running:
+                service = NativeAudioCoreService(key)
+                service.start()
+                self._services[key] = service
+            return service
 
-class NativeCaptureSession:
+    @classmethod
+    def shutdown_all(cls) -> None:
+        with cls._services_lock:
+            services = list(cls._services.values())
+            cls._services.clear()
+        for service in services:
+            service.shutdown()
+
+    def drain_events(self, max_events: int = 64) -> list[dict[str, Any]]:
+        with self._services_lock:
+            service = self._services.get(self.binary_path.resolve()) if self.binary_path.exists() else None
+        if service is None or not service.is_running:
+            return []
+        return service.drain_global_events(max_events=max_events)
+
+
+class NativeAudioCoreService:
     def __init__(self, binary_path: Path) -> None:
         self.binary_path = binary_path
         self.process: subprocess.Popen[str] | None = None
-        self.events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=512)
-        self.stderr_lines: queue.Queue[str] = queue.Queue(maxsize=64)
+        self.global_events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=512)
+        self.stderr_lines: queue.Queue[str] = queue.Queue(maxsize=128)
+        self._channel_events: dict[str, queue.Queue[dict[str, Any]]] = {}
+        self._lock = threading.RLock()
+        self._write_lock = threading.Lock()
+        self._closed = threading.Event()
         self._reader_thread: threading.Thread | None = None
         self._stderr_thread: threading.Thread | None = None
-        self._closed = threading.Event()
+        self._playback_counter = 0
 
     @property
     def is_running(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+        return self.process is not None and self.process.poll() is None and not self._closed.is_set()
 
-    def start(self, config: dict[str, Any]) -> None:
-        if not self.binary_path.exists():
-            raise RuntimeError(f"Native audio core binary is missing: {self.binary_path}")
+    def start(self) -> None:
         self.process = subprocess.Popen(
             [str(self.binary_path), "serve"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
+            bufsize=0,
         )
-        self._reader_thread = threading.Thread(target=self._read_stdout, name="native-audio-stdout", daemon=True)
-        self._stderr_thread = threading.Thread(target=self._read_stderr, name="native-audio-stderr", daemon=True)
+        self._reader_thread = threading.Thread(target=self._read_stdout, name="native-core-stdout", daemon=True)
+        self._stderr_thread = threading.Thread(target=self._read_stderr, name="native-core-stderr", daemon=True)
         self._reader_thread.start()
         self._stderr_thread.start()
-        ready = self.read_event(timeout=5)
-        if not ready or ready.get("event") != "ready":
-            self.close()
-            raise RuntimeError(f"Native audio core did not become ready: {ready or self.recent_stderr()}")
-        self.send({"cmd": "start-capture", **config})
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            event = self.read_event(timeout=0.5)
-            if not event:
-                continue
-            if event.get("event") == "ok" and event.get("cmd") == "start-capture":
-                return
-            if event.get("event") == "error":
-                self.close()
-                raise RuntimeError(str(event.get("message") or "Native capture failed."))
-        self.close()
-        raise RuntimeError("Timed out while starting native capture.")
+        ready = self.wait_global(lambda event: event.get("event") == "ready", timeout=5)
+        if not ready:
+            self.shutdown()
+            raise RuntimeError(f"Native audio core did not become ready: {self.recent_stderr()}")
+
+    def register_channel(self, channel: str) -> queue.Queue[dict[str, Any]]:
+        with self._lock:
+            events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=512)
+            self._channel_events[channel] = events
+            return events
+
+    def unregister_channel(self, channel: str) -> None:
+        with self._lock:
+            self._channel_events.pop(channel, None)
+
+    def allocate_playback_channel(self, base_channel: str) -> str:
+        with self._lock:
+            self._playback_counter += 1
+            return f"{base_channel}:playback:{self._playback_counter}"
 
     def send(self, payload: dict[str, Any]) -> None:
-        if not self.process or not self.process.stdin or self.process.poll() is not None:
-            raise RuntimeError("Native audio core process is not running.")
-        self.process.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        self.process.stdin.flush()
+        with self._write_lock:
+            if not self.process or not self.process.stdin or self.process.poll() is not None:
+                raise RuntimeError("Native audio core process is not running.")
+            self.process.stdin.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.process.stdin.flush()
+
+    def send_playback_audio(self, channel: str, pcm16: bytes, sample_rate: int) -> None:
+        header = {
+            "cmd": "playback-chunk-binary",
+            "channel": channel,
+            "sample_rate": sample_rate,
+            "byte_len": len(pcm16),
+        }
+        with self._write_lock:
+            if not self.process or not self.process.stdin or self.process.poll() is not None:
+                raise RuntimeError("Native audio core process is not running.")
+            self.process.stdin.write((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.process.stdin.write(pcm16)
+            self.process.stdin.flush()
+
+    def wait_channel(
+        self,
+        events: queue.Queue[dict[str, Any]],
+        predicate: Callable[[dict[str, Any]], bool],
+        timeout: float,
+    ) -> dict[str, Any] | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                event = events.get(timeout=min(0.25, max(0.01, deadline - time.time())))
+            except queue.Empty:
+                continue
+            if predicate(event):
+                return event
+            if event.get("event") == "error":
+                raise RuntimeError(str(event.get("message") or "Native audio core error."))
+        return None
+
+    def wait_global(self, predicate: Callable[[dict[str, Any]], bool], timeout: float) -> dict[str, Any] | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                event = self.global_events.get(timeout=min(0.25, max(0.01, deadline - time.time())))
+            except queue.Empty:
+                continue
+            if predicate(event):
+                return event
+            if event.get("event") == "error" and not event.get("channel"):
+                raise RuntimeError(str(event.get("message") or "Native audio core error."))
+        return None
+
+    def drain_global_events(self, max_events: int = 64) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        for _ in range(max(0, max_events)):
+            try:
+                events.append(self.global_events.get_nowait())
+            except queue.Empty:
+                break
+        return events
+
+    def shutdown(self) -> None:
+        if self._closed.is_set():
+            return
+        self._closed.set()
+        if self.process and self.process.poll() is None:
+            try:
+                self.send({"cmd": "shutdown"})
+            except Exception:
+                pass
+            try:
+                self.process.wait(timeout=2)
+            except Exception:
+                self.process.kill()
+        self.process = None
+        with self._lock:
+            self._channel_events.clear()
+
+    def recent_stderr(self) -> str:
+        items: list[str] = []
+        while True:
+            try:
+                items.append(self.stderr_lines.get_nowait())
+            except queue.Empty:
+                break
+        return "\n".join(items[-10:])
+
+    def _read_stdout(self) -> None:
+        if not self.process or not self.process.stdout:
+            return
+        while not self._closed.is_set():
+            line = self.process.stdout.readline()
+            if not line:
+                break
+            if self._closed.is_set():
+                break
+            try:
+                payload = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                payload = {"event": "error", "message": f"Invalid native event: {line!r}"}
+            if payload.get("event") == "audio_chunk_binary":
+                byte_len = int(payload.get("byte_len") or 0)
+                data = self.process.stdout.read(byte_len) if byte_len > 0 else b""
+                payload["event"] = "audio_chunk"
+                payload["pcm16"] = data
+            self._dispatch_event(payload)
+
+    def _read_stderr(self) -> None:
+        if not self.process or not self.process.stderr:
+            return
+        for line in self.process.stderr:
+            if self._closed.is_set():
+                break
+            self._put_bounded(self.stderr_lines, line.decode("utf-8", errors="replace").rstrip())
+
+    def _dispatch_event(self, event: dict[str, Any]) -> None:
+        channel = str(event.get("channel") or "")
+        if not channel:
+            self._put_bounded(self.global_events, event)
+            return
+        with self._lock:
+            target = self._channel_events.get(channel)
+        if target is not None:
+            self._put_bounded(target, event)
+
+    def _put_bounded(self, target: queue.Queue[Any], item: Any) -> None:
+        try:
+            target.put_nowait(item)
+            return
+        except queue.Full:
+            pass
+        try:
+            target.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            target.put_nowait(item)
+        except queue.Full:
+            pass
+
+
+class NativeCaptureSession:
+    def __init__(self, service: NativeAudioCoreService, channel: str) -> None:
+        self.service = service
+        self.channel = channel
+        self.events = service.register_channel(channel)
+        self._closed = threading.Event()
+
+    @property
+    def is_running(self) -> bool:
+        return self.service.is_running and not self._closed.is_set()
+
+    def start(self, config: dict[str, Any]) -> None:
+        self.service.send({"cmd": "start-capture", **config, "channel": self.channel, "binary_audio_events": True})
+        event = self.service.wait_channel(
+            self.events,
+            lambda payload: payload.get("event") == "ok" and payload.get("cmd") == "start-capture",
+            timeout=5,
+        )
+        if not event:
+            self.close()
+            raise RuntimeError(f"Timed out while starting native capture: {self.recent_stderr()}")
+
+    def send(self, payload: dict[str, Any]) -> None:
+        self.service.send(payload)
 
     def read_event(self, timeout: float = 0.05) -> dict[str, Any] | None:
         try:
@@ -144,121 +339,63 @@ class NativeCaptureSession:
     def stop(self) -> None:
         if self.is_running:
             try:
-                self.send({"cmd": "stop-capture"})
+                self.service.send({"cmd": "stop-capture", "channel": self.channel})
             except Exception:
                 pass
 
     def close(self) -> None:
         if self._closed.is_set():
             return
+        self.stop()
         self._closed.set()
-        if self.is_running:
-            try:
-                self.send({"cmd": "shutdown"})
-            except Exception:
-                pass
-            try:
-                self.process.wait(timeout=2)
-            except Exception:
-                self.process.kill()
-        self.process = None
+        self.service.unregister_channel(self.channel)
 
     def recent_stderr(self) -> str:
-        items: list[str] = []
-        while True:
-            try:
-                items.append(self.stderr_lines.get_nowait())
-            except queue.Empty:
-                break
-        return "\n".join(items[-8:])
-
-    def _read_stdout(self) -> None:
-        if not self.process or not self.process.stdout:
-            return
-        for line in self.process.stdout:
-            if self._closed.is_set():
-                break
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                payload = {"event": "error", "message": f"Invalid native event: {line.strip()}"}
-            self._put_event(payload)
-
-    def _read_stderr(self) -> None:
-        if not self.process or not self.process.stderr:
-            return
-        for line in self.process.stderr:
-            if self._closed.is_set():
-                break
-            self._put_stderr(line.rstrip())
-
-    def _put_event(self, event: dict[str, Any]) -> None:
-        try:
-            self.events.put_nowait(event)
-        except queue.Full:
-            try:
-                self.events.get_nowait()
-            except queue.Empty:
-                pass
-            self.events.put_nowait(event)
-
-    def _put_stderr(self, line: str) -> None:
-        try:
-            self.stderr_lines.put_nowait(line)
-        except queue.Full:
-            try:
-                self.stderr_lines.get_nowait()
-            except queue.Empty:
-                pass
-            self.stderr_lines.put_nowait(line)
+        return self.service.recent_stderr()
 
 
-class NativePlaybackSession(NativeCaptureSession):
+class NativePlaybackSession:
+    def __init__(self, service: NativeAudioCoreService, channel: str) -> None:
+        self.service = service
+        self.public_channel = channel
+        self.channel = service.allocate_playback_channel(channel)
+        self.events = service.register_channel(self.channel)
+        self._closed = threading.Event()
+
+    @property
+    def is_running(self) -> bool:
+        return self.service.is_running and not self._closed.is_set()
+
     def start(self, config: dict[str, Any]) -> None:
-        if not self.binary_path.exists():
-            raise RuntimeError(f"Native audio core binary is missing: {self.binary_path}")
-        self.process = subprocess.Popen(
-            [str(self.binary_path), "serve"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
+        self.service.send({"cmd": "start-playback", **config, "channel": self.channel})
+        event = self.service.wait_channel(
+            self.events,
+            lambda payload: payload.get("event") == "ok" and payload.get("cmd") == "start-playback",
+            timeout=5,
         )
-        self._reader_thread = threading.Thread(target=self._read_stdout, name="native-playback-stdout", daemon=True)
-        self._stderr_thread = threading.Thread(target=self._read_stderr, name="native-playback-stderr", daemon=True)
-        self._reader_thread.start()
-        self._stderr_thread.start()
-        ready = self.read_event(timeout=5)
-        if not ready or ready.get("event") != "ready":
+        if not event:
             self.close()
-            raise RuntimeError(f"Native audio core did not become ready: {ready or self.recent_stderr()}")
-        self.send({"cmd": "start-playback", **config})
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            event = self.read_event(timeout=0.5)
-            if not event:
-                continue
-            if event.get("event") == "ok" and event.get("cmd") == "start-playback":
-                return
-            if event.get("event") == "error":
-                self.close()
-                raise RuntimeError(str(event.get("message") or "Native playback failed."))
-        self.close()
-        raise RuntimeError("Timed out while starting native playback.")
+            raise RuntimeError(f"Timed out while starting native playback: {self.recent_stderr()}")
 
     def send_audio(self, channel: str, pcm16: bytes, sample_rate: int) -> None:
-        self.send({
-            "cmd": "playback-chunk",
-            "channel": channel,
-            "sample_rate": sample_rate,
-            "data": base64.b64encode(pcm16).decode("ascii"),
-        })
+        self.service.send_playback_audio(self.channel, pcm16, sample_rate)
 
     def stop(self) -> None:
         if self.is_running:
             try:
-                self.send({"cmd": "stop-playback"})
+                self.service.send({"cmd": "stop-playback", "channel": self.channel})
             except Exception:
                 pass
+
+    def close(self) -> None:
+        if self._closed.is_set():
+            return
+        self.stop()
+        self._closed.set()
+        self.service.unregister_channel(self.channel)
+
+    def recent_stderr(self) -> str:
+        return self.service.recent_stderr()
+
+
+atexit.register(NativeAudioCoreBridge.shutdown_all)

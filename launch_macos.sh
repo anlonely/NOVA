@@ -15,7 +15,11 @@ PY
   return 1
 }
 
-PYTHON_BIN="${PYTHON:-$(pick_python)}"
+if [[ -n "${PYTHON:-}" ]]; then
+  PYTHON_BIN="$PYTHON"
+else
+  PYTHON_BIN="$(pick_python)"
+fi
 if [[ -z "${PYTHON_BIN}" ]]; then
   echo "Python 3.9+ is required. Install it with Homebrew: brew install python@3.12" >&2
   exit 1
@@ -26,8 +30,8 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 
 . .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install -r requirements.txt
 
 if command -v cargo >/dev/null 2>&1 && [[ -f native_audio_core/Cargo.toml ]]; then
   cargo build --release --manifest-path native_audio_core/Cargo.toml >/dev/null
@@ -35,4 +39,4 @@ fi
 
 export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
 export QT_MAC_WANTS_LAYER=1
-exec python desktop_webview.py
+exec "$PYTHON_BIN" desktop_webview.py

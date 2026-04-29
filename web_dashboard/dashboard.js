@@ -1,6 +1,9 @@
 const fallbackExternalState = window.__NOVA_STATE__ || {};
 
 const CHANNELS = ["a", "b", "c"];
+const POPUP_STORAGE_KEY = "nova.transcriptPopupState.v1";
+const POPUP_Z_BASE = 1300;
+const POPUP_Z_PINNED = 1700;
 const PROFILE_DEFAULTS = {
   turbo: { startup: "24", gate: "-46", hold: "180" },
   balanced: { startup: "44", gate: "-50", hold: "240" },
@@ -131,6 +134,10 @@ const I18N = {
     "button.stopRecording": "Stop Recording",
     "button.trainClone": "Train Clone",
     "button.refreshClone": "Refresh Status",
+    "button.popupOpen": "Open Popup",
+    "button.popupPin": "Pin on Top",
+    "button.popupUnpin": "Unpin",
+    "button.popupClose": "Close Popup",
     "button.bias": "Bias",
     "button.latency": "Latency",
     "button.channelTools": "Clone + Tuning",
@@ -202,6 +209,7 @@ const I18N = {
     "platform.noiseFloor": "Adaptive noise floor",
     "platform.adaptiveChunking": "Adaptive AST chunking",
     "platform.autoProfile": "Auto performance profile",
+    "platform.deviceAutoRecover": "Auto recover device routing",
     "domain.eyebrow": "Domain Bias",
     "domain.title": "Recognition Bias",
     "domain.preset": "Domain Preset",
@@ -274,6 +282,8 @@ const I18N = {
     "status.speakerIdNeeded": "Speaker ID Needed",
     "alert.exportDesktop": "Export is available in the desktop build.",
     "alert.startFailed": "Unable to start the engine.",
+    "alert.missingCredentials": "App ID and Access Token are required.",
+    "alert.backendUnavailable": "Backend bridge is not ready. Please restart the desktop app.",
     "alert.cloneSampleMissing": "Choose a training sample first.",
     "alert.updateMissing": "Check for updates first.",
   },
@@ -289,6 +299,10 @@ const I18N = {
     "button.checkUpdates": "检查更新",
     "button.downloadUpdate": "下载安装包",
     "button.browse": "浏览",
+    "button.popupOpen": "打开弹窗",
+    "button.popupPin": "置顶显示",
+    "button.popupUnpin": "取消置顶",
+    "button.popupClose": "关闭弹窗",
     "button.trainClone": "训练音色",
     "button.refreshClone": "刷新状态",
     "button.bias": "识别偏置",
@@ -361,6 +375,7 @@ const I18N = {
     "platform.noiseFloor": "自适应噪声底",
     "platform.adaptiveChunking": "自适应 AST 分片",
     "platform.autoProfile": "自动性能档位",
+    "platform.deviceAutoRecover": "自动恢复设备路由",
     "domain.eyebrow": "领域偏置",
     "domain.title": "识别偏置",
     "domain.preset": "领域预设",
@@ -427,6 +442,8 @@ const I18N = {
     "status.speakerIdNeeded": "需要 Speaker ID",
     "alert.exportDesktop": "导出功能仅桌面版可用。",
     "alert.startFailed": "启动引擎失败。",
+    "alert.missingCredentials": "请先填写 App ID 和 Access Token。",
+    "alert.backendUnavailable": "桌面后端未就绪，请重启桌面应用。",
     "alert.cloneSampleMissing": "请先选择训练样本。",
     "alert.updateMissing": "请先检查更新。",
   },
@@ -584,6 +601,7 @@ const fallbackState = {
     "audio-adaptive-chunking": "1",
     "audio-playback-backend": "python",
     "audio-auto-profile": "1",
+    "audio-device-auto-recover": "0",
     "voice-clone-speaker-id": "S_ATMtmRu02",
     "voice-clone-sample-path": "",
     "voice-clone-reference-text": "",
@@ -602,9 +620,9 @@ const fallbackState = {
     "a-speaker": "",
     "a-profile": "turbo",
     "a-subtitle": "bilingual",
-    "a-startup-buffer": "24",
+    "a-startup-buffer": "16",
     "a-noise-gate": "-46",
-    "a-hold-ms": "180",
+    "a-hold-ms": "140",
     "a-skip-silence": "1",
     "a-enable-agc": "1",
     "a-agc-target": "-18",
@@ -626,9 +644,9 @@ const fallbackState = {
     "b-speaker": "",
     "b-profile": "turbo",
     "b-subtitle": "bilingual",
-    "b-startup-buffer": "28",
-    "b-noise-gate": "-48",
-    "b-hold-ms": "220",
+    "b-startup-buffer": "16",
+    "b-noise-gate": "-46",
+    "b-hold-ms": "140",
     "b-skip-silence": "1",
     "b-enable-agc": "1",
     "b-agc-target": "-18",
@@ -648,11 +666,11 @@ const fallbackState = {
     "c-source": "en",
     "c-target": "zh",
     "c-speaker": "",
-    "c-profile": "balanced",
+    "c-profile": "turbo",
     "c-subtitle": "bilingual",
-    "c-startup-buffer": "36",
-    "c-noise-gate": "-54",
-    "c-hold-ms": "260",
+    "c-startup-buffer": "16",
+    "c-noise-gate": "-46",
+    "c-hold-ms": "140",
     "c-skip-silence": "1",
     "c-enable-agc": "1",
     "c-agc-target": "-18",
@@ -671,7 +689,7 @@ const fallbackState = {
     resourceId: "volc.service_type.10053",
     ...(fallbackExternalState.credentials || {}),
   },
-  version: fallbackExternalState.version || { version: "0.5.0", channel: "alpha" },
+  version: fallbackExternalState.version || { version: "0.4.0", channel: "alpha" },
   optionGroups: fallbackExternalState.optionGroups || fallbackOptionGroups,
   domain:
     fallbackExternalState.domain || {
@@ -691,8 +709,13 @@ const fallbackState = {
       available: false,
       enumerated: false,
       runtime: "python",
+      degraded: false,
+      degradedReason: "",
+      affectedChannels: [],
+      recoveredRoutes: [],
       binaryPath: "",
       deviceCount: 0,
+      lastDeviceChange: null,
     },
   voiceClone:
     fallbackExternalState.voiceClone || {
@@ -720,7 +743,7 @@ const fallbackState = {
     },
   updater:
     fallbackExternalState.updater || {
-      current: { version: "0.5.0", channel: "alpha", manifest_url: "" },
+      current: { version: "0.4.0", channel: "alpha", manifest_url: "" },
       manifestUrl: "",
       lastCheck: null,
       result: null,
@@ -883,6 +906,7 @@ const audioNativeFallbackInput = document.getElementById("audioNativeFallbackInp
 const audioNoiseFloorInput = document.getElementById("audioNoiseFloorInput");
 const audioAdaptiveChunkingInput = document.getElementById("audioAdaptiveChunkingInput");
 const audioAutoProfileInput = document.getElementById("audioAutoProfileInput");
+const audioDeviceAutoRecoverInput = document.getElementById("audioDeviceAutoRecoverInput");
 const audioCoreStatusNote = document.getElementById("audioCoreStatusNote");
 const voiceCloneSamplePathInput = document.getElementById("voiceCloneSamplePathInput");
 const voiceCloneReferenceInput = document.getElementById("voiceCloneReferenceInput");
@@ -912,6 +936,15 @@ const channelRefs = {
   b: makeChannelRefs("B", "b", "green"),
   c: makeChannelRefs("C", "c", "amber"),
 };
+
+const popupRefs = {
+  a: makePopupRefs("A", "a"),
+  b: makePopupRefs("B", "b"),
+  c: makePopupRefs("C", "c"),
+};
+
+const popupState = loadPopupState();
+let popupDragState = null;
 
 const routeDetailRefs = {
   a: makeRouteDetailRefs("A"),
@@ -949,9 +982,11 @@ const checkboxInputs = {
   "audio-noise-floor": audioNoiseFloorInput,
   "audio-adaptive-chunking": audioAdaptiveChunkingInput,
   "audio-auto-profile": audioAutoProfileInput,
+  "audio-device-auto-recover": audioDeviceAutoRecoverInput,
 };
 const numericFieldInputs = {};
 const transcriptScrollState = new Map();
+const popupScrollState = new Map();
 CHANNELS.forEach((alias) => {
   checkboxInputs[`${alias}-enabled`] = channelRefs[alias].channelToggle;
   checkboxInputs[`${alias}-input-enabled`] = channelRefs[alias].inputToggle;
@@ -969,6 +1004,7 @@ CHANNELS.forEach((alias) => {
   numericFieldInputs[`${alias}-denoise-strength`] = document.getElementById(`${alias}DenoiseStrengthInput`);
   numericFieldInputs[`${alias}-clone-speed`] = document.getElementById(`${alias}CloneSpeedInput`);
   transcriptScrollState.set(alias, { stickToBottom: true, top: 0 });
+  popupScrollState.set(alias, { stickToBottom: true, top: 0 });
   channelRefs[alias].transcript?.addEventListener(
     "scroll",
     () => {
@@ -983,12 +1019,27 @@ CHANNELS.forEach((alias) => {
     },
     { passive: true }
   );
+  popupRefs[alias].transcript?.addEventListener(
+    "scroll",
+    () => {
+      const node = popupRefs[alias].transcript;
+      if (!node) {
+        return;
+      }
+      popupScrollState.set(alias, {
+        stickToBottom: isTranscriptNearBottom(node),
+        top: node.scrollTop,
+      });
+    },
+    { passive: true }
+  );
 });
 
 const channelPanels = Array.from(document.querySelectorAll(".channel-detail-panel"));
 
 let backendBridge = null;
 let backendMode = false;
+let engineActionInFlight = "";
 let activeDrawer = "";
 let activeChannelDrawer = "a";
 let demoTimer = null;
@@ -1037,6 +1088,106 @@ function makeChannelRefs(suffix, alias, accent) {
     outputToggle: document.getElementById(`${suffix.toLowerCase()}OutputEnabledInput`),
     metricInput: document.getElementById(`metricInput${suffix}`),
   };
+}
+
+function makePopupRefs(suffix, alias) {
+  return {
+    alias,
+    root: document.getElementById(`transcriptPopup${suffix}`),
+    header: document.getElementById(`transcriptPopupHeader${suffix}`),
+    title: document.getElementById(`transcriptPopupTitle${suffix}`),
+    status: document.getElementById(`transcriptPopupStatus${suffix}`),
+    transcript: document.getElementById(`popupTranscript${suffix}`),
+    liveSource: document.getElementById(`popupLivePreview${suffix}Source`),
+    liveTarget: document.getElementById(`popupLivePreview${suffix}Target`),
+    openButton: document.getElementById(`openPopup${suffix}Button`),
+    openPaneButton: document.getElementById(`openPopup${suffix}PaneButton`),
+    closeButton: document.getElementById(`closePopup${suffix}Button`),
+    pinButton: document.getElementById(`pinPopup${suffix}Button`),
+    pinPaneButton: document.getElementById(`pinPopup${suffix}PaneButton`),
+  };
+}
+
+function getDefaultPopupState() {
+  const defaults = {};
+  CHANNELS.forEach((alias, index) => {
+    defaults[alias] = {
+      open: false,
+      pinned: false,
+      x: Math.max(16, 74 + index * 38),
+      y: Math.max(96, 84 + index * 40),
+      z: 0,
+    };
+  });
+  return defaults;
+}
+
+function clampPopupPosition(x, y, width = 440, height = 420) {
+  const maxX = Math.max(16, window.innerWidth - width - 16);
+  const maxY = Math.max(16, window.innerHeight - height - 16);
+  const nextX = Math.max(16, Math.min(maxX, Math.round(x)));
+  const nextY = Math.max(16, Math.min(maxY, Math.round(y)));
+  return { x: nextX, y: nextY };
+}
+
+function loadPopupState() {
+  const defaults = getDefaultPopupState();
+  try {
+    const raw = window.localStorage.getItem(POPUP_STORAGE_KEY);
+    if (!raw) {
+      return defaults;
+    }
+    const parsed = JSON.parse(raw) || {};
+    return Object.fromEntries(
+      CHANNELS.map((alias) => {
+        const saved = parsed[alias] || {};
+        const fallback = defaults[alias];
+        return [
+          alias,
+          {
+            open: Boolean(saved.open),
+            pinned: Boolean(saved.pinned),
+            x: Number(saved.x) || fallback.x,
+            y: Number(saved.y) || fallback.y,
+            z: Number(saved.z) || 0,
+          },
+        ];
+      }),
+    );
+  } catch {
+    return defaults;
+  }
+}
+
+function savePopupState() {
+  try {
+    const payload = {};
+    CHANNELS.forEach((alias) => {
+      payload[alias] = popupState[alias];
+    });
+    window.localStorage.setItem(POPUP_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Best-effort persistence only.
+  }
+}
+
+function getPopupZIndex(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return POPUP_Z_BASE;
+  }
+  const base = state.pinned ? POPUP_Z_PINNED : POPUP_Z_BASE;
+  return base + (state.z || 0);
+}
+
+function focusPopup(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return;
+  }
+  const next = Math.max(...CHANNELS.map((id) => popupState[id]?.z || 0), 0) + 1;
+  state.z = next;
+  savePopupState();
 }
 
 function makeLatencyRefs(suffix, alias) {
@@ -1427,6 +1578,37 @@ function currentPayload() {
   };
 }
 
+function clearNotice() {
+  clearTimeout(noticeTimer);
+  transientNotice = "";
+  renderHeader();
+}
+
+function setBackendNotice() {
+  if (!engineActionInFlight) {
+    return;
+  }
+  setNotice(
+    engineActionInFlight === "start"
+      ? uiLanguage() === "zh"
+        ? "正在启动引擎，请稍等……"
+        : "Starting engine, please wait..."
+      : uiLanguage() === "zh"
+        ? "正在停止引擎，请稍等……"
+        : "Stopping engine, please wait...",
+    10000,
+  );
+}
+
+function validateStartPayload(payload) {
+  const missingAppId = !(payload.credentials?.appId || "").trim();
+  const missingToken = !(payload.credentials?.accessToken || "").trim();
+  if (missingAppId || missingToken) {
+    return t("alert.missingCredentials");
+  }
+  return "";
+}
+
 function getRawOptionList(key) {
   return appState.optionGroups?.[key] || fallbackOptionGroups[key] || [];
 }
@@ -1808,8 +1990,8 @@ function renderPlatformState() {
   const captureBackend = nativeCore.captureBackend || appState.values["audio-capture-backend"] || "python";
   const captureLabel = captureBackend === "native" ? "Native" : "Python";
   if (nativeCore.available && nativeCore.enumerated) {
-    nativeCoreTag.textContent = `${captureLabel} Audio Core`;
-    audioCorePill.textContent = `${captureLabel} / ${nativeCore.deviceCount || 0}`;
+    nativeCoreTag.textContent = nativeCore.degraded ? `${captureLabel} Degraded` : `${captureLabel} Audio Core`;
+    audioCorePill.textContent = `${captureLabel} / ${nativeCore.deviceCount || 0}${nativeCore.degraded ? " / degraded" : ""}`;
   } else if (nativeCore.available) {
     nativeCoreTag.textContent = t("status.nativeScaffold");
     audioCorePill.textContent = `${captureLabel} / ${t("status.nativeScaffold")}`;
@@ -1820,7 +2002,17 @@ function renderPlatformState() {
   if (audioCoreStatusNote) {
     const health = nativeCore.health || {};
     const healthText = nativeCore.available ? (health.ok ? "healthy" : health.error || "not ready") : "binary missing";
-    audioCoreStatusNote.textContent = `Capture ${captureLabel} / playback ${nativeCore.playbackBackend || "python"} / ${nativeCore.resamplerQuality || "sinc-lite"} / ${nativeCore.vadMode || "adaptive"} / pre-roll ${nativeCore.preRollMs || appState.values["audio-pre-roll-ms"] || 0}ms / fallback ${nativeCore.fallbackEnabled ? "on" : "off"} / ${healthText}`;
+    const changedAt = nativeCore.lastDeviceChange?.timestamp
+      ? ` / changed ${new Date(nativeCore.lastDeviceChange.timestamp * 1000).toLocaleTimeString()}`
+      : "";
+    const affected = Array.isArray(nativeCore.affectedChannels) && nativeCore.affectedChannels.length
+      ? ` / affected ${nativeCore.affectedChannels.map((item) => item.label || item.alias || item.channelId).join(", ")}`
+      : "";
+    const recovered = Array.isArray(nativeCore.recoveredRoutes) && nativeCore.recoveredRoutes.length
+      ? ` / recovered ${nativeCore.recoveredRoutes.map((item) => `${item.label || item.alias || item.channelId} ${item.kind}`).join(", ")}`
+      : "";
+    const degradedText = nativeCore.degraded && nativeCore.degradedReason ? ` / ${nativeCore.degradedReason}` : "";
+    audioCoreStatusNote.textContent = `Capture ${captureLabel} / playback ${nativeCore.playbackBackend || "python"} / ${nativeCore.resamplerQuality || "sinc-lite"} / ${nativeCore.vadMode || "adaptive"} / pre-roll ${nativeCore.preRollMs || appState.values["audio-pre-roll-ms"] || 0}ms / fallback ${nativeCore.fallbackEnabled ? "on" : "off"} / route recovery ${nativeCore.deviceAutoRecover ? "on" : "off"} / ${healthText}${changedAt}${affected}${recovered}${degradedText}`;
   }
 
   const updater = appState.updater || {};
@@ -2094,7 +2286,13 @@ function formatLatency(stats) {
 function formatQueue(stats) {
   const depth = Number(stats?.input_queue_depth || 0);
   const dropped = Number(stats?.dropped_silent_chunks || 0);
-  return uiLanguage() === "zh" ? `队列 ${depth.toString().padStart(2, "0")} / 丢弃 ${dropped}` : `Queue ${depth.toString().padStart(2, "0")} / Drop ${dropped}`;
+  const limiter = Number(stats?.playback_limiter_events || 0);
+  const outputFailures = Number(stats?.playback_output_failures || 0);
+  const limiterText = limiter > 0 ? (uiLanguage() === "zh" ? ` / 限幅 ${limiter}` : ` / Limit ${limiter}`) : "";
+  const outputFailText = outputFailures > 0 ? (uiLanguage() === "zh" ? ` / 输出失败 ${outputFailures}` : ` / OutFail ${outputFailures}`) : "";
+  return uiLanguage() === "zh"
+    ? `队列 ${depth.toString().padStart(2, "0")} / 丢弃 ${dropped}${limiterText}${outputFailText}`
+    : `Queue ${depth.toString().padStart(2, "0")} / Drop ${dropped}${limiterText}${outputFailText}`;
 }
 
 function formatAudioLevel(stats) {
@@ -2226,6 +2424,72 @@ function buildTranscriptEntry(alias, entry, mode) {
   `;
 }
 
+function applyPopupLayout(alias) {
+  const refs = popupRefs[alias];
+  const state = popupState[alias];
+  if (!refs?.root || !state) {
+    return;
+  }
+  if (hasDesktopPopupWindowSupport()) {
+    refs.root.classList.remove("is-open");
+    refs.root.classList.remove("is-pinned");
+    return;
+  }
+  const rootRect = refs.root.getBoundingClientRect();
+  const width = Number.isFinite(rootRect.width) ? rootRect.width : 440;
+  const height = Number.isFinite(rootRect.height) ? rootRect.height : 420;
+  const next = clampPopupPosition(state.x, state.y, Math.max(width, 300), Math.max(height, 280));
+  refs.root.style.left = `${next.x}px`;
+  refs.root.style.top = `${next.y}px`;
+  refs.root.style.zIndex = String(getPopupZIndex(alias));
+  state.x = next.x;
+  state.y = next.y;
+  if (state.open) {
+    refs.root.classList.add("is-open");
+  } else {
+    refs.root.classList.remove("is-open");
+  }
+  refs.root.classList.toggle("is-pinned", Boolean(state.pinned));
+}
+
+function escapeHtmlOrDash(value) {
+  const safe = escapeHtml(value);
+  return safe || "--";
+}
+
+function buildTranscriptRows(alias, entries, mode) {
+  return entries.map((entry) => buildTranscriptEntry(alias, entry, mode)).join("");
+}
+
+function updatePopupControlLabels(alias) {
+  const refs = popupRefs[alias];
+  if (!refs) {
+    return;
+  }
+  const state = popupState[alias] || {};
+  refs.openButton && (refs.openButton.title = t("button.popupOpen"));
+  if (refs.openButton) {
+    refs.openButton.setAttribute("aria-label", t("button.popupOpen"));
+  }
+  if (refs.openPaneButton) {
+    refs.openPaneButton.setAttribute("title", t("button.popupOpen"));
+    refs.openPaneButton.setAttribute("aria-label", t("button.popupOpen"));
+  }
+  if (refs.closeButton) {
+    refs.closeButton.title = t("button.popupClose");
+    refs.closeButton.setAttribute("aria-label", t("button.popupClose"));
+  }
+  const pinLabel = state.pinned ? t("button.popupUnpin") : t("button.popupPin");
+  if (refs.pinButton) {
+    refs.pinButton.title = pinLabel;
+    refs.pinButton.setAttribute("aria-label", pinLabel);
+  }
+  if (refs.pinPaneButton) {
+    refs.pinPaneButton.title = pinLabel;
+    refs.pinPaneButton.setAttribute("aria-label", pinLabel);
+  }
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -2254,7 +2518,7 @@ function renderTranscriptPane(alias) {
 
   refs.liveSource.textContent = mode === "target_only" ? "" : partial.source || "";
   refs.liveTarget.textContent = mode === "source_only" ? "" : partial.target || "";
-  refs.transcript.innerHTML = entries.map((entry) => buildTranscriptEntry(alias, entry, mode)).join("");
+  refs.transcript.innerHTML = buildTranscriptRows(alias, entries, mode);
   refs.paneStatus.textContent = displayStatus(runtime.pane || runtime.label || "Idle");
   if (shouldStick) {
     refs.transcript.scrollTop = refs.transcript.scrollHeight;
@@ -2265,6 +2529,60 @@ function renderTranscriptPane(alias) {
     stickToBottom: shouldStick,
     top: refs.transcript.scrollTop,
   });
+}
+
+function renderTranscriptPopup(alias) {
+  const refs = popupRefs[alias];
+  const state = popupState[alias];
+  if (!refs || !state) {
+    return;
+  }
+  const mode = appState.values[`${alias}-subtitle`] || "bilingual";
+  const partial = appState.partials?.[alias] || {};
+  const runtime = appState.runtime?.channels?.[alias] || {};
+  const entries = appState.transcripts?.[alias] || [];
+  const previousScrollTop = refs.transcript?.scrollTop || 0;
+  const previousScrollState = popupScrollState.get(alias) || { stickToBottom: true, top: 0 };
+  const shouldStick =
+    previousScrollState.stickToBottom ||
+    isTranscriptNearBottom(refs.transcript, previousScrollTop);
+  const fallbackTitle =
+    uiLanguage() === "zh"
+      ? `通道 ${alias.toUpperCase()} 实时翻译`
+      : `Channel ${alias.toUpperCase()} Live Translation`;
+  const meta = channelLocaleCopy(alias);
+  const paneTitle = meta?.paneTitle || fallbackTitle;
+  const eyebrow = refs.header?.querySelector(".eyebrow");
+  if (eyebrow) {
+    eyebrow.textContent = uiLanguage() === "zh" ? `通道 ${alias.toUpperCase()}` : `Channel ${alias.toUpperCase()}`;
+  }
+
+  refs.title.textContent = paneTitle;
+  refs.status.textContent = displayStatus(runtime.pane || runtime.label || "Idle");
+  refs.liveSource.textContent = mode === "target_only" ? "" : partial.source || "";
+  refs.liveTarget.textContent = mode === "source_only" ? "" : partial.target || "";
+  if (refs.transcript) {
+    refs.transcript.innerHTML = buildTranscriptRows(alias, entries, mode);
+  }
+  if (refs.transcript && shouldStick) {
+    refs.transcript.scrollTop = refs.transcript.scrollHeight;
+  } else if (refs.transcript) {
+    refs.transcript.scrollTop = Math.max(0, previousScrollState.top ?? previousScrollTop);
+  }
+
+  if (refs.transcript) {
+    popupScrollState.set(alias, {
+      stickToBottom: shouldStick,
+      top: refs.transcript.scrollTop,
+    });
+  }
+
+  const runtimeCopy = `${paneTitle}${runtime.label ? ` · ${escapeHtmlOrDash(runtime.label)}` : ""}`;
+  refs.root?.setAttribute("aria-label", runtimeCopy);
+  refs.status?.setAttribute("title", runtimeCopy);
+
+  updatePopupControlLabels(alias);
+  applyPopupLayout(alias);
 }
 
 function renderChannelDrawer() {
@@ -2293,6 +2611,7 @@ function renderDrawers() {
 
 function renderRunningState() {
   const running = Boolean(appState.runtime?.running);
+  const inFlight = Boolean(engineActionInFlight);
   if (running && !topControlsCollapsed) {
     autoSubtitleFocus = true;
     setTopControlsCollapsed(true);
@@ -2303,10 +2622,13 @@ function renderRunningState() {
     autoSubtitleFocus = false;
   }
   app.classList.toggle("is-running", running);
-  startButton.disabled = running;
-  stopButton.disabled = !running;
+  startButton.disabled = running || inFlight;
+  stopButton.disabled = !running || inFlight;
   refreshButton.disabled = running;
   saveConfigButton.disabled = running;
+  if (inFlight) {
+    setBackendNotice();
+  }
 }
 
 function renderAll() {
@@ -2320,6 +2642,7 @@ function renderAll() {
   renderRouteCard();
   renderLatencyPanel();
   CHANNELS.forEach(renderTranscriptPane);
+  CHANNELS.forEach(renderTranscriptPopup);
   renderRunningState();
   renderSelects();
   renderDrawers();
@@ -2333,6 +2656,7 @@ function renderLiveState() {
   renderRouteCard();
   renderLatencyPanel();
   CHANNELS.forEach(renderTranscriptPane);
+  CHANNELS.forEach(renderTranscriptPopup);
   renderRunningState();
   renderVoicePreviewState();
 }
@@ -2351,6 +2675,166 @@ function scheduleSave(delay = 280) {
     applyServerState(response);
     renderAll();
   }, delay);
+}
+
+function hasDesktopPopupWindowSupport() {
+  return Boolean(backendMode && backendBridge && typeof backendBridge.open_transcript_window === "function");
+}
+
+function openPopup(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return;
+  }
+  if (hasDesktopPopupWindowSupport()) {
+    callBackend("open_transcript_window", { alias, pinned: Boolean(state.pinned), lang: uiLanguage() })
+      .then((response) => {
+        state.pinned = response && typeof response.pinned !== "undefined" ? Boolean(response.pinned) : Boolean(state.pinned);
+        savePopupState();
+      })
+      .catch(() => {});
+    return;
+  }
+  state.open = true;
+  const refs = popupRefs[alias];
+  const rootRect = refs?.root?.getBoundingClientRect();
+  const defaultState = getDefaultPopupState()[alias];
+  const next = clampPopupPosition(
+    Number.isFinite(state.x) ? state.x : defaultState.x,
+    Number.isFinite(state.y) ? state.y : defaultState.y,
+    Number.isFinite(rootRect?.width) ? rootRect.width : 440,
+    Number.isFinite(rootRect?.height) ? rootRect.height : 420,
+  );
+  state.x = next.x;
+  state.y = next.y;
+  focusPopup(alias);
+  savePopupState();
+  applyPopupLayout(alias);
+}
+
+function closePopup(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return;
+  }
+  if (hasDesktopPopupWindowSupport()) {
+    callBackend("close_transcript_window", { alias })
+      .then((response) => {
+        state.pinned = response && typeof response.pinned !== "undefined" ? Boolean(response.pinned) : state.pinned;
+        savePopupState();
+      })
+      .catch(() => {});
+    return;
+  }
+  state.open = false;
+  savePopupState();
+  applyPopupLayout(alias);
+}
+
+function togglePopup(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return;
+  }
+  if (hasDesktopPopupWindowSupport() && typeof backendBridge.is_transcript_window_open === "function") {
+    callBackend("is_transcript_window_open", { alias }).then((response) => {
+      const isOpen = response && typeof response.open === "boolean" ? Boolean(response.open) : false;
+      if (isOpen) {
+        closePopup(alias);
+      } else {
+        openPopup(alias);
+      }
+    });
+    return;
+  }
+  if (state.open) {
+    closePopup(alias);
+  } else {
+    openPopup(alias);
+  }
+}
+
+function togglePopupPin(alias) {
+  const state = popupState[alias];
+  if (!state) {
+    return;
+  }
+  if (hasDesktopPopupWindowSupport() && typeof backendBridge.set_transcript_window_topmost === "function") {
+    const nextPinned = !Boolean(state.pinned);
+    callBackend("set_transcript_window_topmost", { alias, pinned: nextPinned })
+      .then((response) => {
+        if (response && typeof response.pinned !== "undefined") {
+          state.pinned = Boolean(response.pinned);
+        } else {
+          state.pinned = nextPinned;
+        }
+        state.open = response && typeof response.open !== "undefined" ? Boolean(response.open) : state.open;
+        savePopupState();
+      })
+      .catch(() => {});
+    return;
+  }
+  state.pinned = !Boolean(state.pinned);
+  focusPopup(alias);
+  savePopupState();
+  applyPopupLayout(alias);
+}
+
+function handlePopupDragStart(alias, event) {
+  const refs = popupRefs[alias];
+  if (!refs?.root || !event || event.button !== 0) {
+    return;
+  }
+  if ((event.target.closest("button") || event.target.closest("input") || event.target.closest("textarea")) !== null) {
+    return;
+  }
+  const state = popupState[alias];
+  if (!state || !refs.root.classList.contains("is-open")) {
+    return;
+  }
+  const rect = refs.root.getBoundingClientRect();
+  popupDragState = {
+    alias,
+    startX: event.clientX,
+    startY: event.clientY,
+    startPopupX: Number.isFinite(state.x) ? state.x : rect.left,
+    startPopupY: Number.isFinite(state.y) ? state.y : rect.top,
+  };
+  event.preventDefault();
+  focusPopup(alias);
+  applyPopupLayout(alias);
+}
+
+function handlePopupDragMove(event) {
+  if (!popupDragState) {
+    return;
+  }
+  const state = popupState[popupDragState.alias];
+  const refs = popupRefs[popupDragState.alias];
+  if (!state || !refs?.root) {
+    return;
+  }
+  const deltaX = event.clientX - popupDragState.startX;
+  const deltaY = event.clientY - popupDragState.startY;
+  const rect = refs.root.getBoundingClientRect();
+  const next = clampPopupPosition(
+    popupDragState.startPopupX + deltaX,
+    popupDragState.startPopupY + deltaY,
+    Number.isFinite(rect.width) ? rect.width : 440,
+    Number.isFinite(rect.height) ? rect.height : 420,
+  );
+  state.x = next.x;
+  state.y = next.y;
+  refs.root.style.left = `${next.x}px`;
+  refs.root.style.top = `${next.y}px`;
+}
+
+function handlePopupDragEnd() {
+  if (!popupDragState) {
+    return;
+  }
+  savePopupState();
+  popupDragState = null;
 }
 
 function openDrawer(name) {
@@ -2547,11 +3031,31 @@ function formatInputMetric(stats) {
 async function startEngine() {
   stopVoicePreview();
   if (backendMode) {
-    const response = await callBackend("start_channels", currentPayload());
-    applyServerState(response);
-    renderAll();
-    if (response && response.ok === false) {
-      setNotice(response.error || t("alert.startFailed"));
+    const payload = currentPayload();
+    const validationError = validateStartPayload(payload);
+    if (validationError) {
+      setNotice(validationError);
+      return;
+    }
+    engineActionInFlight = "start";
+    renderRunningState();
+    try {
+      const response = await callBackend("start_channels", payload);
+      if (!response) {
+        setNotice(t("alert.backendUnavailable"));
+        renderAll();
+        return;
+      }
+      applyServerState(response);
+      renderAll();
+      if (response.ok === false) {
+        setNotice(response.error || t("alert.startFailed"));
+        return;
+      }
+      setNotice(t("status.starting"), 1200);
+    } finally {
+      engineActionInFlight = "";
+      renderRunningState();
     }
     return;
   }
@@ -2560,9 +3064,21 @@ async function startEngine() {
 
 async function stopEngine() {
   if (backendMode) {
-    const response = await callBackend("stop_channels");
-    applyServerState(response);
-    renderAll();
+    engineActionInFlight = "stop";
+    renderRunningState();
+    try {
+      const response = await callBackend("stop_channels");
+      if (!response) {
+        setNotice(t("alert.backendUnavailable"));
+        renderAll();
+        return;
+      }
+      applyServerState(response);
+      renderAll();
+    } finally {
+      engineActionInFlight = "";
+      renderRunningState();
+    }
     return;
   }
   stopVoicePreview();
@@ -2819,6 +3335,21 @@ function bindEvents() {
   CHANNELS.forEach((alias) => {
     channelRefs[alias].toolsButton.addEventListener("click", () => openChannelDrawer(alias));
   });
+  CHANNELS.forEach((alias) => {
+    const refs = popupRefs[alias];
+    refs?.openButton?.addEventListener("click", () => togglePopup(alias));
+    refs?.openPaneButton?.addEventListener("click", () => openPopup(alias));
+    refs?.pinButton?.addEventListener("click", () => togglePopupPin(alias));
+    refs?.pinPaneButton?.addEventListener("click", () => togglePopupPin(alias));
+    refs?.closeButton?.addEventListener("click", () => closePopup(alias));
+    refs?.header?.addEventListener("mousedown", (event) => handlePopupDragStart(alias, event));
+    refs?.root?.addEventListener("focusin", () => {
+      if (popupState[alias]?.open) {
+        focusPopup(alias);
+        applyPopupLayout(alias);
+      }
+    });
+  });
 
   bindCredentialInput(credentialAppId, "appId");
   bindCredentialInput(credentialAccessToken, "accessToken");
@@ -2848,24 +3379,59 @@ function bindEvents() {
     if (openSelectKey) {
       syncOpenSelectMenu();
     }
+    CHANNELS.forEach((alias) => {
+      if (popupState[alias]?.open) {
+        applyPopupLayout(alias);
+      }
+    });
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeAllSelects();
+      closeAllPopups();
       closeDrawers();
     }
+  });
+  document.addEventListener("mousemove", handlePopupDragMove);
+  document.addEventListener("mouseup", handlePopupDragEnd);
+  document.addEventListener("mouseleave", (event) => {
+    if (event.target === document.documentElement) {
+      handlePopupDragEnd();
+    }
+  });
+}
+
+function closeAllPopups() {
+  CHANNELS.forEach((alias) => {
+    closePopup(alias);
   });
 }
 
 async function initialize() {
   bindEvents();
   topControlsCollapsed = readTopControlsPreference();
+  setNotice(t("status.connecting"), 9000);
   await connectBackend();
   if (backendMode) {
     const state = await callBackend("get_state");
+    if (!state) {
+      clearNotice();
+      setNotice(uiLanguage() === "zh" ? "后端未返回状态，请重启桌面应用后重试。" : "Backend did not return state. Restart the app and retry.");
+      renderAll();
+      return;
+    }
     applyServerState(state);
     pollTimer = window.setInterval(pollBackendState, 900);
+    clearNotice();
+  } else {
+    clearNotice();
+    setNotice(
+      uiLanguage() === "zh"
+        ? "未检测到桌面后端，当前为预览模式。"
+        : "No desktop backend detected; running in preview mode.",
+      9000,
+    );
   }
   renderAll();
 }
