@@ -10,8 +10,8 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 
 . .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-build.txt
+"$python_bin" -m pip install --upgrade pip
+"$python_bin" -m pip install -r requirements-build.txt
 
 if command -v cargo >/dev/null 2>&1 && [[ -f native_audio_core/Cargo.toml ]]; then
   cargo build --release --manifest-path native_audio_core/Cargo.toml
@@ -28,10 +28,10 @@ fi
 
 rm -rf build dist
 mkdir -p output/release
-python -m PyInstaller --noconfirm --clean nova_interp.spec
-python scripts/verify_release_bundle.py --dist-path "dist/NOVA INTERP.app"
+"$python_bin" -m PyInstaller --noconfirm --clean nova_interp.spec
+"$python_bin" scripts/verify_release_bundle.py --dist-path "dist/NOVA INTERP.app"
 
-version="$(python - <<'PY'
+version="$("$python_bin" - <<'PY'
 import json
 from pathlib import Path
 print(json.loads(Path('app_version.json').read_text(encoding='utf-8')).get('version', '0.0.0'))
