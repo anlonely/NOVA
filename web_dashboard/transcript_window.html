@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOVA TRANSLATION WINDOW</title>
+  <link rel="stylesheet" href="./transcript_window.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+</head>
+<body>
+  <div class="tw-app">
+    <header class="tw-header">
+      <div>
+        <p class="tw-eyebrow" id="twEyebrow">Channel</p>
+        <h1 id="twTitle">Channel Live Translation</h1>
+      </div>
+      <div class="tw-actions">
+        <span class="status-pill" id="twStatus">Idle</span>
+        <button class="tw-icon-button" id="twPinButton" type="button" title="Pin on Top" aria-label="Pin on Top">📌</button>
+        <button class="tw-icon-button" id="twCloseButton" type="button" title="Close" aria-label="Close popup">✕</button>
+      </div>
+    </header>
+
+    <section class="tw-live-preview">
+      <div class="entry-source" id="twLiveSource"></div>
+      <div class="entry-target" id="twLiveTarget"></div>
+    </section>
+
+    <div class="tw-transcript-scroll" id="twTranscript"></div>
+    <p class="tw-empty-state" id="twNotice"></p>
+  </div>
+  <script src="./transcript_window.js"></script>
+</body>
+</html>

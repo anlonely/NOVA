@@ -43,12 +43,12 @@ git checkout main        # 切回 V2 主线时
 仓库内文档入口：
 
 - [分支文档索引](docs/BRANCH_PRODUCT_DOC_INDEX.md)
-- [V2 变更总览（架构/进度）](docs/V2_ARCHITECTURE_PROGRESS.md)
-- [V2 产品说明](docs/PRODUCT_DOC_native-audio-core-v2.md)
+- [main 产品说明](docs/PRODUCT_DOC_main.md)
+- [main 变更总览（架构/进度）](docs/V2_ARCHITECTURE_PROGRESS.md)
 
 如果你需要回看旧基线功能说明，可查看：
 
-- [main 分支文档快照](docs/PRODUCT_DOC_main.md)
+- [old_v1 文档快照](docs/PRODUCT_DOC_native-audio-core-v2.md)
 
 核心实现模块说明：
 
