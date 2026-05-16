@@ -1,23 +1,40 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Invoke-Checked {
+  param(
+    [Parameter(Mandatory = $true)]
+    [scriptblock]$Command,
+    [Parameter(Mandatory = $true)]
+    [string]$Description
+  )
+
+  & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Description failed with exit code $LASTEXITCODE"
+  }
+}
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
   python -m venv .venv
+  if ($LASTEXITCODE -ne 0) {
+    throw "Python virtual environment creation failed with exit code $LASTEXITCODE"
+  }
 }
 
-& $venvPython -m pip install --upgrade pip
-& $venvPython -m pip install -r requirements-build.txt
+Invoke-Checked { & $venvPython -m pip install --upgrade pip } "pip upgrade"
+Invoke-Checked { & $venvPython -m pip install -r requirements-build.txt } "build requirements install"
 
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargo) {
   Write-Host "Building native audio core with cargo..."
   Push-Location (Join-Path $projectRoot "native_audio_core")
   try {
-    & $cargo.Source build --release
+    Invoke-Checked { & $cargo.Source build --release } "native audio core build"
   } finally {
     Pop-Location
   }
@@ -43,8 +60,8 @@ if (Test-Path $distDir) {
 }
 New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
-& $venvPython -m PyInstaller --noconfirm --clean nova_interp.spec
-& $venvPython scripts\verify_release_bundle.py --dist-path $bundleDir
+Invoke-Checked { & $venvPython -m PyInstaller --noconfirm --clean nova_interp.spec } "PyInstaller build"
+Invoke-Checked { & $venvPython scripts\verify_release_bundle.py --dist-path $bundleDir } "release bundle verification"
 
 Copy-Item -LiteralPath (Join-Path $projectRoot "config.example.json") -Destination (Join-Path $bundleDir "config.example.json") -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "README.md") -Destination (Join-Path $bundleDir "README.md") -Force
