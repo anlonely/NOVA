@@ -617,6 +617,7 @@ class TranslationChannel:
         self._speech_was_active = False
         self._log_lock = threading.Lock()
         self._reconnect_attempts = 0
+        self._local_tts_fallback_requested = False
         self._local_tts = None
         self._native_capture: NativeCaptureSession | None = None
         self._native_playback_sessions: list[NativePlaybackSession] = []
@@ -650,6 +651,7 @@ class TranslationChannel:
         self._stop_requested.clear()
         self._finish_sent = False
         self._reconnect_attempts = 0
+        self._local_tts_fallback_requested = False
         request_timer_resolution()
         self.stats = ChannelStats(channel_id=self.settings.channel_id, session_state="starting", started_at=time.time())
         self.stats.capture_backend = self.settings.capture_backend
@@ -1288,6 +1290,11 @@ class TranslationChannel:
                 self.stats.external_tts_failures += 1
                 self._emit("status", f"Clone TTS failed: {exc}")
                 self._maybe_emit_stats(force=True)
+                if not self._local_tts_fallback_requested:
+                    self._local_tts_fallback_requested = True
+                    self._emit("local_tts_failed", str(exc))
+                    self.stop()
+                    break
                 continue
 
             if audio_bytes:

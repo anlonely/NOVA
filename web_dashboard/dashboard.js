@@ -1,6 +1,6 @@
 const fallbackExternalState = window.__NOVA_STATE__ || {};
 
-const CHANNELS = ["a", "b", "c"];
+const CHANNELS = ["a", "b"];
 const POPUP_STORAGE_KEY = "nova.transcriptPopupState.v1";
 const POPUP_Z_BASE = 1300;
 const POPUP_Z_PINNED = 1700;
@@ -16,27 +16,11 @@ const SCENE_COPY = {
       label: "Discord Bidirectional",
       hint: "Chinese -> English outbound, English -> Chinese inbound",
     },
-    caption_priority: {
-      label: "Caption Priority",
-      hint: "Lower startup buffer and subtitle-first rendering",
-    },
-    studio_demo: {
-      label: "Studio Demo",
-      hint: "Safer buffers and smoother high-fidelity playback",
-    },
   },
   zh: {
     discord_bidirectional: {
       label: "Discord 双向",
       hint: "中文外发转英文，英文入站转中文",
-    },
-    caption_priority: {
-      label: "字幕优先",
-      hint: "更低起播缓冲，优先保障字幕速度",
-    },
-    studio_demo: {
-      label: "演示保真",
-      hint: "更稳的缓冲和更平滑的高保真输出",
     },
   },
 };
@@ -119,7 +103,7 @@ const CLONE_TRAIN_LANGUAGE_COPY = {
 const I18N = {
   en: {
     "app.title": "NOVA INTERP",
-    "tag.dualChannel": "Three Channel",
+    "tag.dualChannel": "Dual Channel",
     "tag.lowLatency": "Low Latency",
     "header.scene": "Scenario Template",
     "button.start": "Start",
@@ -145,10 +129,8 @@ const I18N = {
     "runtime.locked": "Top routing is locked while the engine is active.",
     "channel.aEyebrow": "Channel A",
     "channel.bEyebrow": "Channel B",
-    "channel.cEyebrow": "Channel C",
     "channel.drawerTitleA": "Channel A Clone & Tuning",
     "channel.drawerTitleB": "Channel B Clone & Tuning",
-    "channel.drawerTitleC": "Channel C Clone & Tuning",
     "channel.drawerCopy": "Channel-specific voice clone, cleanup, and latency tuning.",
     "toggle.channel": "Channel",
     "toggle.input": "Input",
@@ -167,23 +149,19 @@ const I18N = {
     "route.outputA": "Output A",
     "route.inputB": "Input B",
     "route.outputB": "Output B",
-    "route.inputC": "Input C",
-    "route.outputC": "Output C",
     "route.astVoice": "AST Voice",
     "route.astFallback": "AST Fallback",
     "route.gapGuard": "Gap Guard",
     "metric.inputA": "Input A",
     "metric.inputB": "Input B",
-    "metric.inputC": "Input C",
     "metric.tts": "TTS",
     "dock.eyebrow": "Live Translation",
-    "dock.title": "Tri-Pane Transcript Dock",
+    "dock.title": "Dual-Pane Transcript Dock",
     "dock.copy": "Smooth auto-scroll, dimmed source text, and emphasized translated text for long-session readability.",
     "dock.autoScroll": "Auto Scroll",
     "dock.bilingual": "Bilingual",
     "pane.aEyebrow": "Channel A Feed",
     "pane.bEyebrow": "Channel B Feed",
-    "pane.cEyebrow": "Channel C Feed",
     "drawer.eyebrow": "Engine Settings",
     "drawer.title": "Engine Credentials",
     "latency.eyebrow": "Latency",
@@ -289,7 +267,7 @@ const I18N = {
   },
   zh: {
     "app.title": "NOVA INTERP",
-    "tag.dualChannel": "三通道",
+    "tag.dualChannel": "双通道",
     "tag.lowLatency": "低延迟",
     "header.scene": "场景模板",
     "button.start": "启动",
@@ -312,10 +290,8 @@ const I18N = {
     "runtime.locked": "引擎运行时，上方路由会自动锁定，避免误操作。",
     "channel.aEyebrow": "通道 A",
     "channel.bEyebrow": "通道 B",
-    "channel.cEyebrow": "通道 C",
     "channel.drawerTitleA": "通道 A 音色与调优",
     "channel.drawerTitleB": "通道 B 音色与调优",
-    "channel.drawerTitleC": "通道 C 音色与调优",
     "channel.drawerCopy": "这里集中放每个通道自己的音色复刻、清理和低延迟调优。",
     "toggle.channel": "通道",
     "toggle.input": "输入",
@@ -333,23 +309,19 @@ const I18N = {
     "route.outputA": "A 输出",
     "route.inputB": "B 输入",
     "route.outputB": "B 输出",
-    "route.inputC": "C 输入",
-    "route.outputC": "C 输出",
     "route.astVoice": "AST 原生译音",
     "route.astFallback": "自动回退",
     "route.gapGuard": "音频补偿",
     "metric.inputA": "A 输入",
     "metric.inputB": "B 输入",
-    "metric.inputC": "C 输入",
     "metric.tts": "语音",
     "dock.eyebrow": "实时翻译",
-    "dock.title": "三栏实时字幕区",
+    "dock.title": "双栏实时字幕区",
     "dock.copy": "平滑自动滚动，原文弱化显示，译文高亮显示，适合长时间盯读。",
     "dock.autoScroll": "自动滚动",
     "dock.bilingual": "双语显示",
     "pane.aEyebrow": "通道 A 字幕",
     "pane.bEyebrow": "通道 B 字幕",
-    "pane.cEyebrow": "通道 C 字幕",
     "drawer.eyebrow": "引擎设置",
     "drawer.title": "引擎凭证",
     "latency.eyebrow": "延迟",
@@ -525,37 +497,20 @@ const fallbackOptionGroups = {
     { value: "headphones", label: "Headphones", hint: "Playback / 2ch" },
     { value: "speaker-main", label: "Speakers (Realtek)", hint: "Playback / 2ch" },
   ],
-  "c-input": [
-    { value: "rust-loopback", label: "Rust RX Loopback", hint: "Game voice loopback / 2ch" },
-    { value: "vm-bus", label: "VoiceMeeter AUX Output", hint: "Mixer loopback / 2ch" },
-  ],
-  "c-output": [
-    { value: "headphones", label: "Headphones", hint: "Playback / 2ch" },
-    { value: "monitor-bus", label: "Monitor Bus", hint: "Virtual monitor / 2ch" },
-  ],
-  "c-monitor-output": [
-    { value: "headphones", label: "Headphones", hint: "Playback / 2ch" },
-    { value: "speaker-main", label: "Speakers (Realtek)", hint: "Playback / 2ch" },
-  ],
   "voice-clone-record-device": [
     { value: "mic-main", label: "Microphone (BRIO)", hint: "Microphone / 1ch" },
     { value: "mic-cable", label: "CABLE Output", hint: "Virtual microphone / 2ch" },
   ],
-  "a-source": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "a-target": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
+  "a-source": Object.entries(LANGUAGE_COPY.en).filter(([value]) => ["zh", "en"].includes(value)).map(([value, copy]) => ({ value, ...copy })),
+  "a-target": Object.entries(LANGUAGE_COPY.en).filter(([value]) => ["zh", "en"].includes(value)).map(([value, copy]) => ({ value, ...copy })),
   "a-speaker": makeAstVoiceOptions(),
-  "b-source": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "b-target": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
+  "b-source": Object.entries(LANGUAGE_COPY.en).filter(([value]) => ["zh", "en"].includes(value)).map(([value, copy]) => ({ value, ...copy })),
+  "b-target": Object.entries(LANGUAGE_COPY.en).filter(([value]) => ["zh", "en"].includes(value)).map(([value, copy]) => ({ value, ...copy })),
   "b-speaker": makeAstVoiceOptions(),
-  "c-source": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "c-target": Object.entries(LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "c-speaker": makeAstVoiceOptions(),
   "a-profile": Object.entries(PROFILE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "b-profile": Object.entries(PROFILE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "c-profile": Object.entries(PROFILE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "a-subtitle": Object.entries(SUBTITLE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "b-subtitle": Object.entries(SUBTITLE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
-  "c-subtitle": Object.entries(SUBTITLE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "voice-clone-language": Object.entries(CLONE_TRAIN_LANGUAGE_COPY.en).map(([value, copy]) => ({ value, ...copy })),
   "audio-capture-backend": [
     { value: "python", label: "Python Capture", hint: "Stable fallback path" },
@@ -576,7 +531,6 @@ const fallbackOptionGroups = {
   "voice-clone-speaker-id": makeCloneOptions(),
   "a-clone-speaker": makeCloneOptions(),
   "b-clone-speaker": makeCloneOptions(),
-  "c-clone-speaker": makeCloneOptions(),
 };
 
 const fallbackState = {
@@ -656,30 +610,6 @@ const fallbackState = {
     "b-clone-enabled": "0",
     "b-clone-speaker": "S_ATMtmRu02",
     "b-clone-speed": "1.0",
-    "c-enabled": "0",
-    "c-input-enabled": "1",
-    "c-output-enabled": "1",
-    "c-monitor-enabled": "0",
-    "c-input": "rust-loopback",
-    "c-output": "headphones",
-    "c-monitor-output": "headphones",
-    "c-source": "en",
-    "c-target": "zh",
-    "c-speaker": "",
-    "c-profile": "turbo",
-    "c-subtitle": "bilingual",
-    "c-startup-buffer": "16",
-    "c-noise-gate": "-46",
-    "c-hold-ms": "140",
-    "c-skip-silence": "1",
-    "c-enable-agc": "1",
-    "c-agc-target": "-18",
-    "c-agc-max-gain": "6",
-    "c-enable-denoise": "1",
-    "c-denoise-strength": "0.28",
-    "c-clone-enabled": "0",
-    "c-clone-speaker": "",
-    "c-clone-speed": "1.0",
     ...(fallbackExternalState.values || {}),
   },
   credentials: {
@@ -733,7 +663,7 @@ const fallbackState = {
       recordingLevelDb: -96,
       activeChannels: ["Outbound English"],
       fallbackChannels: [],
-      runtimeLanguages: ["en"],
+        runtimeLanguages: ["zh", "en"],
       catalog: makeCloneOptions().slice(1).map((item) => ({
         speaker_id: item.value,
         label: item.label,
@@ -749,24 +679,18 @@ const fallbackState = {
       result: null,
       download: null,
     },
-  channels:
-    fallbackExternalState.channels || {
-      a: {
-        title: "Outbound English",
-        copy: "Your microphone translated for Discord, games, or a virtual cable.",
-        paneTitle: "A · Outbound Feed",
-      },
-      b: {
-        title: "Discord Inbound",
-        copy: "Discord or remote speech translated back to your monitor bus.",
-        paneTitle: "B · Discord Feed",
-      },
-      c: {
-        title: "Game Voice Inbound",
-        copy: "Game voice loopback translated locally without hijacking the whole game mix.",
-        paneTitle: "C · Game Feed",
-      },
+  channels: {
+    a: {
+      title: "Outbound English",
+      copy: "Your microphone translated for Discord.",
+      paneTitle: "A · Outbound Feed",
     },
+    b: {
+      title: "Discord Inbound",
+      copy: "Discord or remote speech translated back to your monitor bus.",
+      paneTitle: "B · Discord Feed",
+    },
+  },
   transcripts:
     fallbackExternalState.transcripts || {
       a: [
@@ -783,13 +707,6 @@ const fallbackState = {
           target: "守住 Launch Site，把火箭留给车库门。",
         },
       ],
-      c: [
-        {
-          time: "02:31:19",
-          source: "Two on the road by Oxum's, one has an MP5.",
-          target: "Oxum's 路边有两个人，其中一个拿着 MP5。",
-        },
-      ],
     },
   partials:
     fallbackExternalState.partials || {
@@ -800,10 +717,6 @@ const fallbackState = {
       b: {
         source: "We are moving scrap to Outpost now.",
         target: "我们现在把废料搬去 Outpost。",
-      },
-      c: {
-        source: "Someone is pushing from the recycler side.",
-        target: "有人从回收机那边压过来了。",
       },
     },
   runtime:
@@ -826,18 +739,10 @@ const fallbackState = {
           status: "Ready",
           stats: { audio_level_db: -61, input_queue_depth: 0, dropped_silent_chunks: 2 },
         },
-        c: {
-          signal: "idle",
-          label: "Disabled",
-          pane: "Disabled",
-          status: "Channel disabled",
-          stats: { audio_level_db: -72, input_queue_depth: 0, dropped_silent_chunks: 0 },
-        },
       },
       metrics: {
         inputA: "-58 dB / Q00 / Drop 4",
         inputB: "-61 dB / Q00 / Drop 2",
-        inputC: "-72 dB / Q00 / Drop 0",
         ast: "--",
         tts: "--",
       },
@@ -925,22 +830,16 @@ const voicePreviewRefs = {
     button: document.getElementById("bPreviewVoiceButton"),
     note: document.getElementById("bPreviewVoiceNote"),
   },
-  c: {
-    button: document.getElementById("cPreviewVoiceButton"),
-    note: document.getElementById("cPreviewVoiceNote"),
-  },
 };
 
 const channelRefs = {
   a: makeChannelRefs("A", "a", "blue"),
   b: makeChannelRefs("B", "b", "green"),
-  c: makeChannelRefs("C", "c", "amber"),
 };
 
 const popupRefs = {
   a: makePopupRefs("A", "a"),
   b: makePopupRefs("B", "b"),
-  c: makePopupRefs("C", "c"),
 };
 
 const popupState = loadPopupState();
@@ -949,7 +848,6 @@ let popupDragState = null;
 const routeDetailRefs = {
   a: makeRouteDetailRefs("A"),
   b: makeRouteDetailRefs("B"),
-  c: makeRouteDetailRefs("C"),
   ast: {
     status: document.getElementById("routeDetailAstStatus"),
     path: document.getElementById("routeDetailAstPath"),
@@ -1428,12 +1326,49 @@ function buildCloneCatalogOptions() {
   return options;
 }
 
+function filterChannelMap(map = {}, fallback = {}) {
+  return Object.fromEntries(CHANNELS.map((alias) => [alias, map?.[alias] ?? fallback?.[alias] ?? {}]));
+}
+
+function sanitizeValues(values = {}) {
+  const cleaned = Object.fromEntries(
+    Object.entries(values).filter(([key]) => !key.startsWith("c-")),
+  );
+  cleaned.scene = "discord_bidirectional";
+  return cleaned;
+}
+
+function filterRuntime(runtime = {}) {
+  const nextRuntime = { ...runtime };
+  nextRuntime.channels = filterChannelMap(runtime.channels, fallbackState.runtime?.channels);
+  nextRuntime.metrics = {
+    ...(runtime.metrics || {}),
+  };
+  Object.keys(nextRuntime.metrics).forEach((key) => {
+    if (!["inputA", "inputB", "ast", "tts"].includes(key)) {
+      delete nextRuntime.metrics[key];
+    }
+  });
+  return nextRuntime;
+}
+
+function sanitizeOptionGroup(key, options) {
+  const normalizedOptions = Array.isArray(options) ? options.map((option) => normalizeOption(option)) : [];
+  if (key === "scene") {
+    return normalizedOptions.filter((option) => option.value === "discord_bidirectional");
+  }
+  if (key.endsWith("-source") || key.endsWith("-target") || key === "voice-clone-language") {
+    return normalizedOptions.filter((option) => ["zh", "en"].includes(option.value));
+  }
+  return normalizedOptions;
+}
+
 function normalizeOptionGroups(groups = {}) {
+  const allowedKeys = new Set(Object.keys(fallbackOptionGroups));
   const normalized = Object.fromEntries(
-    Object.entries({ ...fallbackOptionGroups, ...groups }).map(([key, options]) => [
-      key,
-      Array.isArray(options) ? options.map((option) => normalizeOption(option)) : [],
-    ]),
+    Object.entries({ ...fallbackOptionGroups, ...groups })
+      .filter(([key]) => allowedKeys.has(key))
+      .map(([key, options]) => [key, sanitizeOptionGroup(key, options)]),
   );
   const cloneOptions = buildCloneCatalogOptions();
   normalized["voice-clone-speaker-id"] = cloneOptions;
@@ -1449,7 +1384,7 @@ function applyServerState(payload) {
     return;
   }
   if (nextState.values) {
-    appState.values = { ...appState.values, ...nextState.values };
+    appState.values = sanitizeValues({ ...appState.values, ...nextState.values });
   }
   if (nextState.credentials) {
     appState.credentials = { ...appState.credentials, ...nextState.credentials };
@@ -1479,16 +1414,16 @@ function applyServerState(payload) {
     appState.updater = { ...appState.updater, ...nextState.updater };
   }
   if (nextState.channels) {
-    appState.channels = { ...appState.channels, ...nextState.channels };
+    appState.channels = filterChannelMap(nextState.channels, appState.channels);
   }
   if (nextState.transcripts) {
-    appState.transcripts = { ...appState.transcripts, ...nextState.transcripts };
+    appState.transcripts = filterChannelMap(nextState.transcripts, appState.transcripts);
   }
   if (nextState.partials) {
-    appState.partials = { ...appState.partials, ...nextState.partials };
+    appState.partials = filterChannelMap(nextState.partials, appState.partials);
   }
   if (nextState.runtime) {
-    appState.runtime = { ...appState.runtime, ...nextState.runtime };
+    appState.runtime = filterRuntime({ ...appState.runtime, ...nextState.runtime });
   }
 }
 
@@ -1568,7 +1503,7 @@ function persistFormToState() {
 function currentPayload() {
   persistFormToState();
   return {
-    values: { ...appState.values },
+    values: sanitizeValues(appState.values),
     credentials: {
       appId: appState.credentials.appId,
       accessToken: appState.credentials.accessToken,
@@ -2992,7 +2927,6 @@ function startDemoStream() {
     });
     appState.runtime.metrics.inputA = formatInputMetric(appState.runtime.channels.a.stats);
     appState.runtime.metrics.inputB = formatInputMetric(appState.runtime.channels.b.stats);
-    appState.runtime.metrics.inputC = formatInputMetric(appState.runtime.channels.c.stats);
     appState.runtime.metrics.ast = `${62 + Math.round(Math.random() * 28)} ms`;
     appState.runtime.metrics.tts = `${86 + Math.round(Math.random() * 46)} ms`;
     appState.runtime.globalStatus = "Live";

@@ -8,7 +8,7 @@ if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
 
 $pythonGui = ".\.venv\Scripts\pythonw.exe"
 if (Test-Path $pythonGui) {
-  Start-Process -FilePath $pythonGui -ArgumentList "app.py" -WorkingDirectory (Get-Location)
+  Start-Process -FilePath $pythonGui -ArgumentList "desktop_webview.py" -WorkingDirectory (Get-Location)
 } else {
-  Start-Process -FilePath ".\.venv\Scripts\python.exe" -ArgumentList "app.py" -WorkingDirectory (Get-Location)
+  Start-Process -FilePath ".\.venv\Scripts\python.exe" -ArgumentList "desktop_webview.py" -WorkingDirectory (Get-Location)
 }

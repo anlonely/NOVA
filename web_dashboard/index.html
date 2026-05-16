@@ -224,15 +224,6 @@
               <strong class="node-value" id="routeInputB"></strong>
             </div>
 
-            <div class="route-node-card accent-amber active node-input-c">
-              <span class="node-label" data-i18n="route.inputC">Input C</span>
-              <strong class="node-value" id="routeInputC"></strong>
-            </div>
-
-            <div class="route-node-card accent-amber active node-output-c">
-              <span class="node-label" data-i18n="route.outputC">Output C</span>
-              <strong class="node-value" id="routeOutputC"></strong>
-            </div>
           </div>
 
           <div class="route-metrics">
@@ -247,10 +238,6 @@
             <div class="metric-chip">
               <span data-i18n="metric.inputB">Input B</span>
               <strong id="metricInputB">-28 dB</strong>
-            </div>
-            <div class="metric-chip">
-              <span data-i18n="metric.inputC">Input C</span>
-              <strong id="metricInputC">-41 dB</strong>
             </div>
             <div class="metric-chip">
               <span data-i18n="metric.tts">TTS</span>
@@ -398,95 +385,6 @@
           </div>
         </article>
 
-        <article class="card channel-card channel-c control-card" data-channel="c" id="channelCardC">
-          <div class="card-header">
-            <div>
-              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
-              <h2 id="channelCTitle">Speaker C</h2>
-              <p class="card-copy" id="channelCCopy">Inbound lane for game voice audio, translated for your local monitoring without hijacking your game sound output.</p>
-            </div>
-
-            <div class="channel-header-meta">
-              <div class="visualizer active" data-visualizer="c" aria-hidden="true">
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-              </div>
-              <span class="status-pill accent-amber" data-state-pill="c">Ready</span>
-            </div>
-          </div>
-
-          <div class="channel-top-band">
-            <div class="channel-toggle-strip">
-              <label class="channel-mini-toggle">
-                <input id="cEnabledInput" type="checkbox">
-                <span data-i18n="toggle.channel">Channel</span>
-              </label>
-              <label class="channel-mini-toggle">
-                <input id="cInputEnabledInput" type="checkbox">
-                <span data-i18n="toggle.input">Input</span>
-              </label>
-              <label class="channel-mini-toggle">
-                <input id="cOutputEnabledInput" type="checkbox">
-                <span data-i18n="toggle.output">Output</span>
-              </label>
-            </div>
-
-            <div class="channel-device-grid">
-              <div class="field">
-                <span class="field-label" data-i18n="field.inputDevice">Input Device</span>
-                <div class="custom-select" data-select="c-input"></div>
-              </div>
-
-              <div class="field">
-                <span class="field-label" data-i18n="field.outputDevice">Output Device</span>
-                <div class="custom-select" data-select="c-output"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="channel-config-grid">
-            <div class="field">
-              <span class="field-label" data-i18n="field.sourceLanguage">Source Language</span>
-              <div class="custom-select compact" data-select="c-source"></div>
-            </div>
-
-            <div class="field">
-              <span class="field-label" data-i18n="field.targetLanguage">Target Language</span>
-              <div class="custom-select compact" data-select="c-target"></div>
-            </div>
-
-            <div class="field">
-              <span class="field-label" data-i18n="field.outputVoice">Output Voice</span>
-              <div class="custom-select compact" data-select="c-speaker"></div>
-            </div>
-
-            <div class="field">
-              <span class="field-label" data-i18n="field.performance">Performance</span>
-              <div class="custom-select compact" data-select="c-profile"></div>
-            </div>
-
-            <div class="field">
-              <span class="field-label" data-i18n="field.transcriptMode">Transcript Mode</span>
-              <div class="custom-select compact" data-select="c-subtitle"></div>
-            </div>
-          </div>
-
-          <div class="channel-footer">
-            <div class="route-note" id="cRouteNote"></div>
-            <div class="channel-inline-actions">
-              <div class="diag-chip-group">
-                <span class="diag-chip accent-amber" id="cLatencyChip">94 ms audio</span>
-                <span class="diag-chip" id="cQueueChip">Queue 00</span>
-              </div>
-              <button class="action-button secondary channel-popup-button" id="openPopupCButton" type="button" data-i18n="button.popupOpen">Open Popup</button>
-              <button class="action-button secondary channel-tools-button" id="cChannelToolsButton" type="button" data-i18n="button.channelTools">Clone + Tuning</button>
-            </div>
-          </div>
-        </article>
       </section>
 
       <section class="transcript-dock">
@@ -551,28 +449,6 @@
             <div class="transcript-scroll" id="transcriptB"></div>
           </section>
 
-          <section class="transcript-pane pane-c">
-            <div class="pane-header">
-              <div>
-                <p class="eyebrow" data-i18n="pane.cEyebrow">Channel C Feed</p>
-                <h3 id="paneCTitle">Game Voice to You</h3>
-              </div>
-              <div class="pane-header-actions">
-                <button class="action-button secondary compact-text-button pane-popup-open-button" id="openPopupCPaneButton" type="button" data-i18n="button.popupOpen"></button>
-                <span class="status-pill accent-amber" id="paneCStatus">Idle</span>
-                <button class="icon-button ghost pane-popup-pin-button" id="pinPopupCPaneButton" type="button" aria-label="Pin popup">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div class="live-preview" id="livePreviewC">
-              <div class="entry-source" id="livePreviewCSource"></div>
-              <div class="entry-target" id="livePreviewCTarget"></div>
-            </div>
-            <div class="transcript-scroll" id="transcriptC"></div>
-          </section>
         </div>
       </section>
     </main>
@@ -843,21 +719,6 @@
               </div>
             </article>
 
-            <article class="latency-channel-card accent-amber" id="latencyCardC">
-              <div class="latency-channel-head">
-                <div>
-                  <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
-                  <h3 id="latencyTitleC">Channel C</h3>
-                </div>
-                <span class="status-pill accent-amber" id="latencyStatusC">Idle</span>
-              </div>
-              <div class="latency-stat-grid">
-                <div class="latency-stat-row"><span data-i18n="latency.firstAudio">First Audio</span><strong id="latencyCFirstAudio">--</strong></div>
-                <div class="latency-stat-row"><span data-i18n="latency.recognition">Speech Recognition</span><strong id="latencyCRecognition">--</strong></div>
-                <div class="latency-stat-row"><span data-i18n="latency.translation">Translation Processing</span><strong id="latencyCTranslation">--</strong></div>
-                <div class="latency-stat-row"><span data-i18n="latency.tts">TTS Generation</span><strong id="latencyCTts">--</strong></div>
-              </div>
-            </article>
           </div>
         </section>
       </div>
@@ -935,29 +796,6 @@
               </label>
             </div>
 
-            <div class="advanced-card channel-detail-panel" data-channel-panel="c">
-              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
-
-              <div class="drawer-inline">
-                <button class="action-button secondary compact-text-button" id="cPreviewVoiceButton" type="button" data-i18n="button.previewVoice">Preview</button>
-                <span class="drawer-note inline-note" id="cPreviewVoiceNote"></span>
-              </div>
-
-              <label class="toggle-row">
-                <input id="cCloneEnabledInput" type="checkbox">
-                <span data-i18n="advanced.useClone">Use Cloned Voice</span>
-              </label>
-
-              <div class="field">
-                <span class="field-label" data-i18n="advanced.cloneSpeaker">Clone Speaker ID</span>
-                <div class="custom-select compact" data-select="c-clone-speaker"></div>
-              </div>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.cloneSpeed">Clone Speed</span>
-                <input class="credential-input" id="cCloneSpeedInput" type="number" min="0.6" max="1.8" step="0.05">
-              </label>
-            </div>
           </div>
 
           <label class="credential-field">
@@ -1140,64 +978,6 @@
               </div>
             </div>
 
-            <div class="advanced-card channel-detail-panel" data-channel-panel="c">
-              <p class="eyebrow" data-i18n="channel.cEyebrow">Channel C</p>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.startupBuffer">Startup Buffer (ms)</span>
-                <input class="credential-input" id="cStartupBufferInput" type="number" min="16" max="200" step="1">
-              </label>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.noiseGate">Noise Gate (dB)</span>
-                <input class="credential-input" id="cNoiseGateInput" type="number" min="-90" max="-10" step="1">
-              </label>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.silenceHold">Silence Hold (ms)</span>
-                <input class="credential-input" id="cHoldInput" type="number" min="0" max="1200" step="10">
-              </label>
-
-              <label class="toggle-row">
-                <input id="cSkipSilenceInput" type="checkbox">
-                <span data-i18n="advanced.dropSilence">Drop silent chunks</span>
-              </label>
-
-              <label class="toggle-row">
-                <input id="cEnableAgcInput" type="checkbox">
-                <span data-i18n="advanced.enableAgc">Enable AGC</span>
-              </label>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.agcTarget">AGC Target (dBFS)</span>
-                <input class="credential-input" id="cAgcTargetInput" type="number" min="-30" max="-6" step="1">
-              </label>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.agcMaxGain">AGC Max Gain</span>
-                <input class="credential-input" id="cAgcMaxGainInput" type="number" min="1" max="16" step="0.5">
-              </label>
-
-              <label class="toggle-row">
-                <input id="cEnableDenoiseInput" type="checkbox">
-                <span data-i18n="advanced.enableDenoise">Enable Denoise</span>
-              </label>
-
-              <label class="credential-field">
-                <span class="field-label" data-i18n="advanced.denoiseStrength">Denoise Strength</span>
-                <input class="credential-input" id="cDenoiseStrengthInput" type="number" min="0" max="0.95" step="0.01">
-              </label>
-
-              <label class="toggle-row">
-                <input id="cMonitorEnabledInput" type="checkbox">
-                <span data-i18n="advanced.monitorPlayback">Monitor translated voice</span>
-              </label>
-
-              <div class="field">
-                <span class="field-label" data-i18n="advanced.monitorDevice">Monitor Device</span>
-                <div class="custom-select compact" data-select="c-monitor-output"></div>
-              </div>
-            </div>
           </div>
         </section>
       </div>
@@ -1255,33 +1035,6 @@
         <div class="entry-target" id="popupLivePreviewBTarget"></div>
       </div>
       <div class="transcript-scroll popup-transcript-scroll" id="popupTranscriptB"></div>
-    </article>
-
-    <article class="transcript-popup" id="transcriptPopupC" aria-label="Channel C Popup">
-      <header class="transcript-popup-header" id="transcriptPopupHeaderC">
-        <div>
-          <p class="eyebrow">Channel C</p>
-          <h3 id="transcriptPopupTitleC">Channel C Live Translation</h3>
-        </div>
-        <div class="transcript-popup-actions">
-          <span class="status-pill accent-amber" id="transcriptPopupStatusC">Idle</span>
-          <button class="icon-button ghost transcript-popup-pin-button" id="pinPopupCButton" type="button" aria-label="Pin popup">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6.5 4.75A1.75 1.75 0 0 0 4.75 6.5v2.5c0 .19.02.37.06.55V18A2.5 2.5 0 0 0 7.25 20.5h8.5A2.5 2.5 0 0 0 18 18V9.05l.44-.44a1.75 1.75 0 0 0 0-2.47l-2.16-2.16a1.75 1.75 0 0 0-2.47 0L13.37 4.8a1.75 1.75 0 0 0-.55 1.24z"></path>
-            </svg>
-          </button>
-          <button class="icon-button ghost transcript-popup-close-button" id="closePopupCButton" type="button" aria-label="Close popup">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.4 4.29 19.7 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3z"></path>
-            </svg>
-          </button>
-        </div>
-      </header>
-      <div class="live-preview" id="popupLivePreviewC">
-        <div class="entry-source" id="popupLivePreviewCSource"></div>
-        <div class="entry-target" id="popupLivePreviewCTarget"></div>
-      </div>
-      <div class="transcript-scroll popup-transcript-scroll" id="popupTranscriptC"></div>
     </article>
 
   </div>

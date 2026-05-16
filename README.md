@@ -2,7 +2,7 @@
 
 [English README](README_EN.md)
 
-一款面向 Discord、游戏语音、会议和跨语言协作场景的低延迟桌面实时翻译控制台。
+一款面向 Discord 中英双通道语音沟通的低延迟桌面实时翻译控制台。
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-Qt%20WebEngine-41CD52?style=for-the-badge&logo=qt&logoColor=white)
@@ -10,18 +10,18 @@
 ![macOS](https://img.shields.io/badge/macOS-App%20Bundle-111111?style=for-the-badge&logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-Packaging-0078D4?style=for-the-badge&logo=windows&logoColor=white)
 
-NOVA INTERP 将麦克风、平台音频和游戏语音拆成独立通道，接入火山引擎 AST 流式语音翻译，并提供字幕盯读、音频路由、音色试听、延迟观测和打包发布能力。
+NOVA INTERP Lite 保留 Discord 双向同传主链路：A 通道负责“我的麦克风中文 → 英文外发”，B 通道负责“Discord/远端英文 → 中文监听”。系统继续接入火山引擎 AST 流式语音翻译、Rust 音频核心、Rust 游戏热词偏置和声音复刻回退策略，优先保证速度、稳定性和长时间运行。
 
 ---
 
 ## ✨ 项目特性
 
-- 🎙️ **三通道实时翻译**：A/B/C 通道分别覆盖外发麦克风、远端监听和游戏语音监听。
-- 🔀 **独立音频路由**：每个通道可单独选择输入、输出和监听设备，适配 VB-Cable、BlackHole 等虚拟声卡。
+- 🎙️ **Discord 双通道实时翻译**：A/B 通道分别覆盖我的麦克风外发和 Discord 入站监听。
+- 🔀 **低延迟音频路由**：每个通道可单独选择输入、输出和监听设备，适配 VB-Cable、BlackHole 等虚拟声卡。
 - ⚡ **低延迟字幕模式**：启动后可自动切换到字幕盯读视图，停止后恢复控制视图。
 - 🧭 **线路与诊断面板**：展示通道状态、输入/输出、AST 延迟、TTS 延迟、队列、丢弃数和电平。
-- 🧠 **领域词汇偏置**：内置 Rust 游戏、战术 FPS、通用语音等识别和翻译偏置模板。
-- 🗣️ **声音克隆工作流**：包含训练样本、状态刷新、试听生成和通道音色配置入口。
+- 🧠 **Rust 热词保留**：默认保留 Rust 游戏热词、纠错词和术语表，用于 Discord 游戏语音里的识别与翻译稳定性。
+- 🗣️ **双通道音色策略**：我的译音可使用我的复刻音色，对方译音可配置对方音色；复刻 TTS 失败时自动回退 AST 原生译音。
 - 🖥️ **跨平台桌面端**：支持 Windows 打包流程，新增 macOS `.app` Bundle 与 release zip。
 - 🦀 **原生音频核心**：Rust `cpal` 音频设备枚举核心，Windows 使用 WASAPI，macOS 使用 CoreAudio。
 
@@ -128,7 +128,8 @@ python smoke_test_ast.py
 |------|----------|----------|
 | A | 我的麦克风 → 英文外发 | 输入选真实麦克风，输出选虚拟声卡或远端设备 |
 | B | Discord / 远端 → 中文监听 | 输入选平台音频虚拟声卡，输出选耳机/扬声器 |
-| C | 游戏语音 → 中文监听 | 输入选游戏语音虚拟声卡，输出选本地监听设备 |
+
+> C 通道、会议场景、演示场景和独立游戏语音入口已移除；Rust 游戏热词仍保留在双通道翻译链路中。
 
 ### 字幕模式
 
@@ -242,7 +243,7 @@ macOS 首次打开如果被系统拦截，可右键 `NOVA INTERP.app` → 打开
 ```text
 NOVA/
 ├── desktop_webview.py              # Qt + Web dashboard 桌面入口
-├── app.py                          # Tk 兼容入口（保留，用于回归）
+├── app.py                          # 兼容入口，转发到 Web/Qt 界面
 ├── nova_controller.py              # 运行时控制器、配置、状态桥接
 ├── ast_bridge.py                   # Volcengine AST WebSocket 通道实现
 ├── voice_clone_manager.py          # 声音克隆训练、查询和试听接口
@@ -259,7 +260,7 @@ NOVA/
 │   ├── build_windows.ps1           # Windows 打包脚本
 │   └── build_macos.sh              # macOS 打包脚本
 ├── launch.ps1                      # Windows 启动脚本
-├── launch_legacy_tk.ps1            # Tk 兼容启动脚本
+├── launch_legacy_tk.ps1            # 兼容启动脚本，转发到 Web/Qt 界面
 ├── launch_macos.sh                 # macOS 启动脚本
 ├── smoke_test_ast.py               # AST 端到端冒烟测试
 ├── config.example.json             # 安全配置模板
@@ -282,7 +283,7 @@ NOVA/
 ### macOS
 
 - `soundcard` 会提示 macOS 不支持系统级 loopback，这是系统限制。
-- 远端音频/游戏语音建议通过 VB-Cable、BlackHole 或 Loopback 进入输入通道。
+- Discord/远端音频建议通过 VB-Cable、BlackHole 或 Loopback 进入 B 通道输入。
 - 原生音频核心使用 CoreAudio 设备快照。
 
 ### Windows
@@ -297,8 +298,8 @@ NOVA/
 
 - [ ] 更稳定的多平台音频路由抽象
 - [ ] macOS 权限引导和设备诊断向导
-- [ ] 字幕窗口独立浮窗模式
-- [ ] 语音克隆训练流程进一步产品化
+- [ ] 双通道字幕窗口独立浮窗模式
+- [ ] 双通道语音克隆训练流程进一步产品化
 - [ ] 自动更新安装器
 - [ ] Windows / macOS 签名发布流程
 

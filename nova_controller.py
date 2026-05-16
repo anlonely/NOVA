@@ -56,23 +56,21 @@ VOICE_CLONE_RECORD_SAMPLE_RATE = DEFAULT_INPUT_SAMPLE_RATE
 VOICE_CLONE_RECORD_BLOCK_FRAMES = 1600
 VOICE_CLONE_MIN_SAMPLE_SECONDS = 1.2
 
-CHANNEL_MAP = {"a": "outbound", "b": "inbound", "c": "game_inbound"}
+CHANNEL_MAP = {"a": "outbound", "b": "inbound"}
 CHANNEL_ID_TO_ALIAS = {value: key for key, value in CHANNEL_MAP.items()}
 CHANNEL_ALIASES = tuple(CHANNEL_MAP.keys())
 CHANNEL_IDS = tuple(CHANNEL_MAP.values())
-CHANNEL_TITLE_MAP = {"a": "Channel A", "b": "Channel B", "c": "Channel C"}
+CHANNEL_TITLE_MAP = {"a": "Channel A", "b": "Channel B"}
 CHANNEL_COPY_MAP = {
     "a": "Outbound lane for your microphone, translated for the remote side.",
     "b": "Inbound lane for Discord or voice platform audio, translated back for your monitoring bus.",
-    "c": "Inbound lane for game voice audio, translated for your local monitoring without touching game effects routing.",
 }
 CHANNEL_PANE_TITLE_MAP = {
     "a": "Channel A to Remote",
     "b": "Discord to You",
-    "c": "Rust Voice to You",
 }
-CHANNEL_SCENE_MAP = {"a": "outbound", "b": "inbound", "c": "game_inbound"}
-CHANNEL_INPUT_PURPOSE = {"a": "voice_in", "b": "loopback_in", "c": "loopback_in"}
+CHANNEL_SCENE_MAP = {"a": "outbound", "b": "inbound"}
+CHANNEL_INPUT_PURPOSE = {"a": "voice_in", "b": "loopback_in"}
 CORPUS_LIMIT = 1000
 UI_LANGUAGE_OPTIONS = (
     {"value": "zh", "label": "简体中文", "hint": "Chinese interface"},
@@ -85,7 +83,7 @@ VOICE_CLONE_STATUS_LABELS = {
     3: "Failed",
     4: "Active",
 }
-LOCAL_CLONE_TTS_LANGUAGES = {"en"}
+LOCAL_CLONE_TTS_LANGUAGES = {"zh", "en"}
 DEFAULT_VOICE_CLONE_CATALOG = (
     {"speaker_id": "S_ATMtmRu02", "label": "Primary Clone", "note": "Recommended slot"},
     {"speaker_id": "S_zTMtmRu02", "label": "Clone Slot 02", "note": "Console slot"},
@@ -159,56 +157,6 @@ SCENE_TEMPLATES: dict[str, dict[str, Any]] = {
             "subtitle_mode": "bilingual",
         },
         "inbound": {
-            "source_language": "en",
-            "target_language": "zh",
-            "performance_profile": "turbo",
-            "subtitle_mode": "bilingual",
-        },
-        "game_inbound": {
-            "source_language": "en",
-            "target_language": "zh",
-            "performance_profile": "turbo",
-            "subtitle_mode": "bilingual",
-        },
-    },
-    "caption_priority": {
-        "label": "Caption Priority",
-        "description": "Subtitle-first mode with lower startup buffer and aggressive silence trimming.",
-        "outbound": {
-            "source_language": "zh",
-            "target_language": "en",
-            "performance_profile": "turbo",
-            "subtitle_mode": "bilingual",
-        },
-        "inbound": {
-            "source_language": "en",
-            "target_language": "zh",
-            "performance_profile": "turbo",
-            "subtitle_mode": "bilingual",
-        },
-        "game_inbound": {
-            "source_language": "en",
-            "target_language": "zh",
-            "performance_profile": "turbo",
-            "subtitle_mode": "target_only",
-        },
-    },
-    "studio_demo": {
-        "label": "Studio Demo",
-        "description": "Higher playback fidelity and more conservative buffering for demos and capture.",
-        "outbound": {
-            "source_language": "zh",
-            "target_language": "en",
-            "performance_profile": "studio",
-            "subtitle_mode": "bilingual",
-        },
-        "inbound": {
-            "source_language": "en",
-            "target_language": "zh",
-            "performance_profile": "studio",
-            "subtitle_mode": "bilingual",
-        },
-        "game_inbound": {
             "source_language": "en",
             "target_language": "zh",
             "performance_profile": "turbo",
@@ -680,11 +628,6 @@ def format_ts(timestamp: float | None) -> str:
 
 
 def scene_id_from_label(label: str) -> str:
-    normalized = (label or "").strip().lower()
-    if "studio" in normalized or "demo" in normalized:
-        return "studio_demo"
-    if "caption" in normalized:
-        return "caption_priority"
     return "discord_bidirectional"
 
 
@@ -954,6 +897,8 @@ class NovaController:
         self._voice_clone_record_duration_sec = 0.0
         self._voice_clone_record_level_db = -96.0
         self._config_migration_needed = False
+        self._runtime_credentials: Credentials | None = None
+        self._local_tts_disabled_channels: set[str] = set()
         self.values = self._default_values()
         self.scene_id = "discord_bidirectional"
         self.domain_id = "rust"
@@ -1045,30 +990,6 @@ class NovaController:
             "b-clone-enabled": "0",
             "b-clone-speaker": PRIMARY_VOICE_CLONE_SPEAKER,
             "b-clone-speed": "1.0",
-            "c-enabled": "0",
-            "c-input-enabled": "1",
-            "c-output-enabled": "1",
-            "c-monitor-enabled": "0",
-            "c-input": "",
-            "c-output": "",
-            "c-monitor-output": "",
-            "c-source": "en",
-            "c-target": "zh",
-            "c-speaker": "",
-            "c-profile": "turbo",
-            "c-subtitle": "bilingual",
-            "c-startup-buffer": "16",
-            "c-noise-gate": "-46",
-            "c-hold-ms": "140",
-            "c-skip-silence": "1",
-            "c-enable-agc": "1",
-            "c-agc-target": "-18",
-            "c-agc-max-gain": "6",
-            "c-enable-denoise": "1",
-            "c-denoise-strength": "0.24",
-            "c-clone-enabled": "0",
-            "c-clone-speaker": PRIMARY_VOICE_CLONE_SPEAKER,
-            "c-clone-speed": "1.0",
         }
 
     def _load_config(self) -> None:
@@ -1137,27 +1058,30 @@ class NovaController:
         domain = data.get("domain", {})
         domain_id = domain.get("preset", self.values["domain-preset"])
         self._apply_domain_pack_values(domain_id, overwrite_custom=False)
-        if domain.get("context") is not None:
-            self.values["domain-context"] = str(domain.get("context") or "")
-        if domain.get("hot_words") is not None:
-            self.values["domain-hot-words"] = str(domain.get("hot_words") or "")
-        if domain.get("correct_words") is not None:
-            self.values["domain-correct-words"] = str(domain.get("correct_words") or "")
-        if domain.get("glossary") is not None:
-            self.values["domain-glossary"] = str(domain.get("glossary") or "")
+        for config_key, value_key in (
+            ("context", "domain-context"),
+            ("hot_words", "domain-hot-words"),
+            ("correct_words", "domain-correct-words"),
+            ("glossary", "domain-glossary"),
+        ):
+            if domain.get(config_key) is None:
+                continue
+            configured_value = str(domain.get(config_key) or "")
+            if configured_value.strip() or domain_id != "rust":
+                self.values[value_key] = configured_value
 
         channels = data.get("channels", {})
         outbound = channels.get("outbound", {})
         inbound = channels.get("inbound", {})
-        game_inbound = channels.get("game_inbound", {})
         self.voice_clone_catalog = normalize_voice_clone_catalog(
             voice_clone.get("speaker_catalog"),
             voice_clone.get("speaker_id", ""),
             outbound.get("voice_clone_speaker_id", ""),
             inbound.get("voice_clone_speaker_id", ""),
-            game_inbound.get("voice_clone_speaker_id", ""),
         )
-        for channel_data in (outbound, inbound, game_inbound):
+        if "game_inbound" in channels:
+            self._config_migration_needed = True
+        for channel_data in (outbound, inbound):
             required_fields = {
                 "enabled",
                 "capture_enabled",
@@ -1231,30 +1155,6 @@ class NovaController:
                 "b-input-enabled": "1" if inbound.get("capture_enabled", True) else "0",
                 "b-output-enabled": "1" if inbound.get("playback_enabled", True) else "0",
                 "b-monitor-enabled": "1" if inbound.get("monitor_playback_enabled", self.values["b-monitor-enabled"] == "1") else "0",
-                "c-input": str(game_inbound.get("capture_device_id", "") or ""),
-                "c-output": str(game_inbound.get("playback_device_id", "") or ""),
-                "c-monitor-output": str(game_inbound.get("monitor_playback_device_id", "") or ""),
-                "c-source": game_inbound.get("source_language", self.values["c-source"]),
-                "c-target": game_inbound.get("target_language", self.values["c-target"]),
-                "c-speaker": str(game_inbound.get("speaker_id", self.values["c-speaker"]) or ""),
-                "c-profile": game_inbound.get("performance_profile", self.values["c-profile"]),
-                "c-subtitle": game_inbound.get("subtitle_mode", self.values["c-subtitle"]),
-                "c-startup-buffer": str(game_inbound.get("startup_buffer_ms", self.values["c-startup-buffer"])),
-                "c-noise-gate": str(game_inbound.get("noise_gate_db", self.values["c-noise-gate"])),
-                "c-hold-ms": str(game_inbound.get("silence_hold_ms", self.values["c-hold-ms"])),
-                "c-skip-silence": "1" if game_inbound.get("skip_silence", True) else "0",
-                "c-enable-agc": "1" if game_inbound.get("enable_agc", True) else "0",
-                "c-agc-target": str(game_inbound.get("agc_target_dbfs", self.values["c-agc-target"])),
-                "c-agc-max-gain": str(game_inbound.get("max_agc_gain", self.values["c-agc-max-gain"])),
-                "c-enable-denoise": "1" if game_inbound.get("enable_denoise", True) else "0",
-                "c-denoise-strength": str(game_inbound.get("denoise_strength", self.values["c-denoise-strength"])),
-                "c-clone-enabled": "1" if game_inbound.get("voice_clone_enabled", False) else "0",
-                "c-clone-speaker": str(game_inbound.get("voice_clone_speaker_id", self.values["c-clone-speaker"]) or ""),
-                "c-clone-speed": str(game_inbound.get("voice_clone_speed", self.values["c-clone-speed"])),
-                "c-enabled": "1" if game_inbound.get("enabled", False) else "0",
-                "c-input-enabled": "1" if game_inbound.get("capture_enabled", True) else "0",
-                "c-output-enabled": "1" if game_inbound.get("playback_enabled", True) else "0",
-                "c-monitor-enabled": "1" if game_inbound.get("monitor_playback_enabled", self.values["c-monitor-enabled"] == "1") else "0",
             }
         )
 
@@ -1302,7 +1202,6 @@ class NovaController:
             self.values.get("voice-clone-speaker-id", ""),
             self.values.get("a-clone-speaker", ""),
             self.values.get("b-clone-speaker", ""),
-            self.values.get("c-clone-speaker", ""),
         )
         if not self.values.get("voice-clone-speaker-id"):
             self.values["voice-clone-speaker-id"] = PRIMARY_VOICE_CLONE_SPEAKER
@@ -1685,7 +1584,7 @@ class NovaController:
         return options
 
     def _language_options(self) -> list[dict[str, str]]:
-        return [{"value": code, "label": label, "hint": code} for label, code in LANGUAGE_OPTIONS]
+        return [{"value": code, "label": label, "hint": code} for label, code in LANGUAGE_OPTIONS if code in {"zh", "en"}]
 
     def _performance_options(self) -> list[dict[str, str]]:
         options: list[dict[str, str]] = []
@@ -1751,9 +1650,6 @@ class NovaController:
             "b-input": self._device_options(self.catalog.microphones, "loopback_in"),
             "b-output": self._device_options(self.catalog.speakers, "voice_out"),
             "b-monitor-output": self._device_options(self.catalog.speakers, "voice_out"),
-            "c-input": self._device_options(self.catalog.microphones, "loopback_in"),
-            "c-output": self._device_options(self.catalog.speakers, "voice_out"),
-            "c-monitor-output": self._device_options(self.catalog.speakers, "voice_out"),
             "voice-clone-record-device": self._device_options(self.catalog.microphones, "voice_in"),
             "a-source": self._language_options(),
             "a-target": self._language_options(),
@@ -1761,19 +1657,13 @@ class NovaController:
             "b-source": self._language_options(),
             "b-target": self._language_options(),
             "b-speaker": self._ast_voice_options(),
-            "c-source": self._language_options(),
-            "c-target": self._language_options(),
-            "c-speaker": self._ast_voice_options(),
             "a-profile": self._performance_options(),
             "b-profile": self._performance_options(),
-            "c-profile": self._performance_options(),
             "a-subtitle": self._subtitle_options(),
             "b-subtitle": self._subtitle_options(),
-            "c-subtitle": self._subtitle_options(),
             "voice-clone-speaker-id": self._voice_clone_options(),
             "a-clone-speaker": self._voice_clone_options(),
             "b-clone-speaker": self._voice_clone_options(),
-            "c-clone-speaker": self._voice_clone_options(),
             "voice-clone-language": [{"value": code, "label": label, "hint": code} for label, code in LANGUAGE_OPTIONS if code in {"zh", "en"}],
         }
 
@@ -1831,11 +1721,10 @@ class NovaController:
             self.values.get("voice-clone-speaker-id", ""),
             self.values.get("a-clone-speaker", ""),
             self.values.get("b-clone-speaker", ""),
-            self.values.get("c-clone-speaker", ""),
         )
         current_global_clone = self.values.get("voice-clone-speaker-id", "")
         if current_global_clone != previous_global_clone:
-            for key in ("a-clone-speaker", "b-clone-speaker", "c-clone-speaker"):
+            for key in ("a-clone-speaker", "b-clone-speaker"):
                 if not self.values.get(key) or self.values.get(key) == previous_global_clone:
                     self.values[key] = current_global_clone
         self._rebuild_correction_maps()
@@ -1917,7 +1806,6 @@ class NovaController:
             "channels": {
                 "outbound": self._channel_config("a"),
                 "inbound": self._channel_config("b"),
-                "game_inbound": self._channel_config("c"),
             },
         }
         CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1963,10 +1851,12 @@ class NovaController:
         profile = PERFORMANCE_PRESETS[self.values[f"{alias}-profile"]]
         channel_config = self._channel_config(alias)
         clone_speaker = channel_config["voice_clone_speaker_id"].strip()
+        local_tts_disabled = channel_id in self._local_tts_disabled_channels
         use_local_tts = bool(
             channel_config["voice_clone_enabled"]
             and clone_speaker
             and self._supports_local_clone_tts(channel_config["target_language"])
+            and not local_tts_disabled
         )
         return ChannelSettings(
             channel_id=channel_id,
@@ -2076,6 +1966,7 @@ class NovaController:
 
         self.stop_channels()
         self._rebuild_correction_maps()
+        self._local_tts_disabled_channels.clear()
 
         credentials = Credentials(
             app_key=self.credentials["appId"].strip(),
@@ -2084,6 +1975,7 @@ class NovaController:
             dns_servers=parse_dns_servers(self.values["network-dns-servers"]),
             dns_hosts=parse_dns_hosts(self.values["network-dns-hosts"]),
         )
+        self._runtime_credentials = credentials
         self.channels = {}
         self.transcripts = {channel_id: [] for channel_id in CHANNEL_IDS}
         self.partials = {channel_id: {"source": "", "target": ""} for channel_id in CHANNEL_IDS}
@@ -2112,6 +2004,7 @@ class NovaController:
         self.channels = {}
         self.channel_status = {channel_id: "Ready" for channel_id in CHANNEL_IDS}
         self.last_error = {channel_id: "" for channel_id in CHANNEL_IDS}
+        self._runtime_credentials = None
         return {"ok": True, "state": self.get_state()}
 
     def export_session(self) -> dict[str, Any]:
@@ -2148,11 +2041,6 @@ class NovaController:
                     "settings": asdict(self._build_channel_settings("b")),
                     "stats": self.stats_by_channel["inbound"],
                     "transcript": self.transcripts["inbound"],
-                },
-                "game_inbound": {
-                    "settings": asdict(self._build_channel_settings("c")),
-                    "stats": self.stats_by_channel["game_inbound"],
-                    "transcript": self.transcripts["game_inbound"],
                 },
             },
         }
@@ -2258,21 +2146,14 @@ class NovaController:
                     "copy": CHANNEL_COPY_MAP["b"],
                     "paneTitle": CHANNEL_PANE_TITLE_MAP["b"],
                 },
-                "c": {
-                    "title": CHANNEL_TITLE_MAP["c"],
-                    "copy": CHANNEL_COPY_MAP["c"],
-                    "paneTitle": CHANNEL_PANE_TITLE_MAP["c"],
-                },
             },
             "transcripts": {
                 "a": self.transcripts["outbound"][-80:],
                 "b": self.transcripts["inbound"][-80:],
-                "c": self.transcripts["game_inbound"][-80:],
             },
             "partials": {
                 "a": dict(self.partials["outbound"]),
                 "b": dict(self.partials["inbound"]),
-                "c": dict(self.partials["game_inbound"]),
             },
             "runtime": self._runtime_snapshot(),
         }
@@ -2287,12 +2168,10 @@ class NovaController:
             "transcripts": {
                 "a": self.transcripts["outbound"][-24:],
                 "b": self.transcripts["inbound"][-24:],
-                "c": self.transcripts["game_inbound"][-24:],
             },
             "partials": {
                 "a": dict(self.partials["outbound"]),
                 "b": dict(self.partials["inbound"]),
-                "c": dict(self.partials["game_inbound"]),
             },
             "runtime": self._runtime_snapshot(),
         }
@@ -2426,7 +2305,11 @@ class NovaController:
             if self.values[f"{alias}-clone-enabled"] != "1":
                 continue
             clone_speaker = self.values[f"{alias}-clone-speaker"].strip()
-            if clone_speaker and self._supports_local_clone_tts(self.values[f"{alias}-target"]):
+            if (
+                clone_speaker
+                and self._supports_local_clone_tts(self.values[f"{alias}-target"])
+                and CHANNEL_MAP[alias] not in self._local_tts_disabled_channels
+            ):
                 active_channels.append(CHANNEL_TITLE_MAP[alias])
         return active_channels
 
@@ -2438,7 +2321,10 @@ class NovaController:
             if self.values[f"{alias}-clone-enabled"] != "1":
                 continue
             clone_speaker = self.values[f"{alias}-clone-speaker"].strip()
-            if clone_speaker and not self._supports_local_clone_tts(self.values[f"{alias}-target"]):
+            if clone_speaker and (
+                not self._supports_local_clone_tts(self.values[f"{alias}-target"])
+                or CHANNEL_MAP[alias] in self._local_tts_disabled_channels
+            ):
                 fallback_channels.append(CHANNEL_TITLE_MAP[alias])
         return fallback_channels
 
@@ -3091,6 +2977,42 @@ $synth.Dispose()
                 break
             self._apply_event(event)
 
+    def _fallback_channel_to_ast_tts(self, channel_id: str, reason: str) -> None:
+        alias = CHANNEL_ID_TO_ALIAS.get(channel_id, "")
+        if not alias:
+            return
+
+        self._local_tts_disabled_channels.add(channel_id)
+        message = "Clone TTS failed; falling back to AST voice."
+        if reason:
+            message = f"{message} {reason}"
+        self.channel_status[channel_id] = message
+
+        previous = self.channels.pop(channel_id, None)
+        if previous is not None:
+            previous.stop()
+            previous.join(timeout=2.0)
+
+        if self._runtime_credentials is None:
+            self.last_error[channel_id] = message
+            return
+        if self.values.get(f"{alias}-enabled") != "1" or self.values.get(f"{alias}-input-enabled") != "1":
+            return
+
+        try:
+            channel = TranslationChannel(
+                self.catalog,
+                self._build_channel_settings(alias),
+                self._runtime_credentials,
+                self.event_queue.put,
+            )
+            self.channels[channel_id] = channel
+            self.channel_status[channel_id] = "Clone TTS fallback active; AST voice restarted."
+            channel.start()
+        except Exception as exc:
+            self.last_error[channel_id] = f"Failed to restart AST voice fallback: {exc}"
+            self.channel_status[channel_id] = self.last_error[channel_id]
+
     def _apply_event(self, event: dict[str, Any]) -> None:
         channel_id = event["channel"]
         alias = CHANNEL_ID_TO_ALIAS.get(channel_id, "")
@@ -3108,6 +3030,10 @@ $synth.Dispose()
         if kind == "error":
             self.last_error[channel_id] = text
             self.channel_status[channel_id] = text
+            return
+
+        if kind == "local_tts_failed":
+            self._fallback_channel_to_ast_tts(channel_id, text)
             return
 
         if kind == "stats":
@@ -3187,7 +3113,6 @@ $synth.Dispose()
     def _runtime_snapshot(self) -> dict[str, Any]:
         out_stats = self.stats_by_channel["outbound"]
         in_stats = self.stats_by_channel["inbound"]
-        game_stats = self.stats_by_channel["game_inbound"]
         running = any(channel.is_running for channel in self.channels.values())
         has_error = any(bool(self.last_error[channel_id]) for channel_id in CHANNEL_IDS)
         domain = DOMAIN_PACKS.get(self.values["domain-preset"], DOMAIN_PACKS["generic"])
@@ -3226,21 +3151,17 @@ $synth.Dispose()
             "channels": {
                 "a": self._channel_runtime("a", "outbound", out_stats),
                 "b": self._channel_runtime("b", "inbound", in_stats),
-                "c": self._channel_runtime("c", "game_inbound", game_stats),
             },
             "metrics": {
                 "inputA": self._input_metric(out_stats),
                 "inputB": self._input_metric(in_stats),
-                "inputC": self._input_metric(game_stats),
                 "ast": self._latency_metric(
                     out_stats.get("first_translation_latency_ms"),
                     in_stats.get("first_translation_latency_ms"),
-                    game_stats.get("first_translation_latency_ms"),
                 ),
                 "tts": self._latency_metric(
                     out_stats.get("first_audio_latency_ms"),
                     in_stats.get("first_audio_latency_ms"),
-                    game_stats.get("first_audio_latency_ms"),
                 ),
             },
         }
